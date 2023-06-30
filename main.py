@@ -1,12 +1,14 @@
 from models.PL_resnet import * 
 from models.PL_MMD_AAE import *
-import json
+import json, shutil
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from pytorch_lightning.callbacks import LearningRateMonitor, BatchSizeFinder
-from pytorch_lightning.callbacks import TQDMProgressBar
+from pytorch_lightning.callbacks import LearningRateMonitor, StochasticWeightAveraging
 from pytorch_lightning.loggers import TensorBoardLogger
+# from pytorch_lightning.tuner import Tuner
+
 
 if __name__ == "__main__":
+    # torch.set_float32_matmul_precision("medium")
     exp_name = 'default'
     
     seed = 10086
@@ -17,12 +19,13 @@ if __name__ == "__main__":
 
     if len(sys.argv) > 1:
         exp_name = sys.argv[1]
-    sanity_check = None
+    override_version = None
     if len(sys.argv) > 2:
-        sanity_check = sys.argv[2]
+        override_version = sys.argv[2]
 
     print("Running Experiment: ", exp_name)
-    f = open(f'/root/configs/'+ exp_name + '.json')
+    config_file_path = f'/root/configs/'+ exp_name + '.json'
+    f = open(config_file_path)
         # f = open(f'/root/autoencoder_denoiser/configs_baseline_selection/'+ name + '.json')
         # global config
         
@@ -35,31 +38,35 @@ if __name__ == "__main__":
     '''callbacks'''
     checkpoint_callback = PL.callbacks.ModelCheckpoint(monitor="val/loss", mode="min", save_last=True)
     early_stop_callback = EarlyStopping(monitor="val/loss", mode="min")
-    lr_monitor_callback = LearningRateMonitor(logging_interval='step')
-    batch_size_finder_callback = BatchSizeFinder()
+    # lr_monitor_callback = LearningRateMonitor(logging_interval='step')
+    # swa_callback = StochasticWeightAveraging(swa_lrs=1e-2)
     log_dir = f'/root/exps/' 
     os.makedirs(log_dir, exist_ok=True)
 
 
     # Initialize a trainer
     
-    name  = exp_name
-    version = None
-    if sanity_check:
-        version = "sanity_check"     
+    # version = None
+    name, version = exp_name.split('/')
+    if override_version:
+        version = override_version  
+    os.makedirs(os.path.join(log_dir,name,version), exist_ok=True)   
+    shutil.copy2(config_file_path,os.path.join(log_dir,name,version))
+    
     trainer = PL.Trainer(
-        accelerator="cpu",
-        # devices=torch.cuda.device_count(),
-        # strategy = "ddp",
+        accelerator="gpu",
+        devices=torch.cuda.device_count(),
+        strategy = 'auto',
         max_epochs=config['experiment']['num_epochs'],
         # logger=CSVLogger(save_dir=log_dir),
         logger = TensorBoardLogger(save_dir=log_dir, name=name, version=version),
-        callbacks=[checkpoint_callback,early_stop_callback,lr_monitor_callback,],
-        auto_scale_batch_size = True
+        callbacks=[checkpoint_callback,early_stop_callback],
     )
-
+    # tuner = Tuner(trainer)
+    # tuner.scale_batch_size(model, mode="power")
+    # model = torch.compile(model, mode="reduce-overhead")
     # Train the model ⚡
-    trainer.fit(model,ckpt_path=config['experiment']['ckpt_path'] )
+    trainer.fit(model)
     if config['test']:
-        trainer.test()
+        trainer.test(ckpt_path='best')
     #    trainer.test(model, ckpt_path='/root/exps/resnet/resnet18_v1/logs/lightning_logs/version_2/checkpoints/epoch=22-step=27485.ckpt') 

@@ -6,20 +6,18 @@ import numpy as np
 import random
 from tqdm import tqdm
 import pytorch_lightning as PL
-import pandas as pd
-from IPython.display import display
 from pytorch_lightning.loggers import CSVLogger
 from torch import nn
 from torch.nn import functional as F
 from torch.utils.data import DataLoader, random_split
 from torchmetrics import Accuracy
-import torchvision.models 
 from models.resnet import resnet18
 
 class Baseline_Resnet(PL.LightningModule):
     def __init__(self,config):
         super().__init__()
         self.config = config
+        # self.batch_size = config['dataset']['batch_size']
         self.num_classes = 150
         self.encoder = self.get_model()
         self.criterion = torch.nn.CrossEntropyLoss()
@@ -70,11 +68,14 @@ class Baseline_Resnet(PL.LightningModule):
     def configure_optimizers(self):
      
         # print(self.parameters())
-        optimizer = torch.optim.Adam(self.parameters(),
+        if self.config['experiment'].get('optimizer') == "SGD":
+            optimizer = torch.optim.SGD(self.parameters(),lr =1, momentum=0.9, weight_decay=0.005, nesterov=True)
+        else:
+            optimizer = torch.optim.Adam(self.parameters(),
                                     lr= self.config['experiment']['learning_rate'],
                                     weight_decay=0.0005)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5)
-        return {'optimizer': optimizer,}
+        return {'optimizer': optimizer,"lr_scheduler":scheduler, "monitor":"val/loss"}
 
     def train_dataloader(self):
         return DataLoader(self.df_data_val, batch_size=self.config['dataset']['batch_size'], num_workers = 32)
