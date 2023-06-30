@@ -27,7 +27,8 @@ class MMD_AAE(Baseline_Resnet):
             
             decoded_original_signal = self.decoder(feature)
             reconstruct_loss = self.reconstruct_criterion(decoded_original_signal,x)
-            loss += self.config['experiment']['recontruct_coeff']*reconstruct_loss  
+            loss += self.config['experiment']['recontruct_coeff']*reconstruct_loss 
+            self.log("train/recons_loss", reconstruct_loss, prog_bar=True ) 
         
         if self.config['experiment']['MMD_coeff']:
             idx1, idx2, idx3 = date==0, date==1, date==2
@@ -50,28 +51,5 @@ class MMD_AAE(Baseline_Resnet):
             
         return loss
      
-    def unpack_batch(self, batch, need_date=False):
-        x,y,date = batch    
-        if need_date:
-            return x,y,date
-        else:
-            return x,y
-    def get_all(self) :
-        pickleFile = open("/root/dataset/ManyTx.pkl","rb")
-        all_info = pickle.load(pickleFile)
-        data = all_info['data']
-
-        source_data,target_data = [],[]
-        for label in range(len(data)):
-            # one_hot_encoded = F.one_hot(torch.tensor([label]), num_classes=len(data))
-            for i in data[label]:
-                for date, j in enumerate(i[0:3]):
-                    for k in j[1]:
-                        source_data.append((k.T.astype("float32"),label, date)) 
-                for j in [ i[3] ]: # this seems dumb, just for sake of pretty alignment
-                    for k in j[1]: # delete this line if we need to put the 50 together
-                        target_data.append((k.T.astype("float32"),label,3)) 
-                        # shape of k is 256 * 2
-        return source_data,target_data 
-
+    
     

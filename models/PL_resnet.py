@@ -61,9 +61,14 @@ class Baseline_Resnet(PL.LightningModule):
         self.log("test/loss", loss, prog_bar=False)
         self.log("test/acc", self.test_accuracy, prog_bar=True)
         
-    def unpack_batch(self, batch):
-        x, y = batch
-        return x,y
+    def unpack_batch(self, batch, need_date=False):
+        # x,y,date = zip(*batch)   
+        # x,y,date = torch.cat(x), torch.cat(y),torch.cat(date) 
+        x,y,date = batch
+        if need_date:
+            return x,y,date
+        else:
+            return x,y
     
     def configure_optimizers(self):
      
@@ -78,19 +83,36 @@ class Baseline_Resnet(PL.LightningModule):
         return {'optimizer': optimizer,"lr_scheduler":scheduler, "monitor":"val/loss"}
 
     def train_dataloader(self):
-        return DataLoader(self.df_data_val, batch_size=self.config['dataset']['batch_size'], num_workers = 32)
+        return DataLoader(
+            self.domained_data[2], # ConcatDataset(self.df_data_train),
+            batch_size=self.config['dataset']['batch_size']//3,
+            num_workers=32,
+            # pin_memory=True
+        )
+
 
     def val_dataloader(self):
-        return DataLoader(self.df_data_val, batch_size=self.config['dataset']['batch_size'], num_workers = 32)
+        return DataLoader(
+            self.domained_data[0],# ConcatDataset(self.df_data_val),
+            batch_size=self.config['dataset']['batch_size']//3,
+            num_workers=32,
+            # pin_memory=True
+        )
 
     def test_dataloader(self):
-        return DataLoader(self.df_data_test, batch_size=self.config['dataset']['batch_size'], num_workers = 32)
+        return DataLoader(self.df_data_test, 
+                          batch_size=self.config['dataset']['batch_size'], 
+                          num_workers = 32)
     
-    def setup(self, stage = None):
-        source_data,target_data = self.get_all()
-        val_num = len(source_data)//10
-        self.df_data_train, self.df_data_val = random_split(source_data, [len(source_data)-val_num,val_num])
-        self.df_data_test = target_data
+    def setup(self, stage = None):  
+        self.get_all()
+        self.df_data_train, self.df_data_val = [],[]
+        for i in range(3):
+            val_num = len(self.domained_data[i])//10
+            t,v = random_split(self.domained_data[i], [len(self.domained_data[i])-val_num,val_num])
+            self.df_data_train.append(t)
+            self.df_data_val.append(v)
+        self.df_data_test = self.domained_data[3]
             
     def get_model(self):
         model = resnet18(pretrained=False, num_classes=self.num_classes)
@@ -103,18 +125,14 @@ class Baseline_Resnet(PL.LightningModule):
         all_info = pickle.load(pickleFile)
         data = all_info['data']
 
-        source_data,target_data = [],[]
+        self.domained_data = [],[],[],[]
         for label in range(len(data)):
             # one_hot_encoded = F.one_hot(torch.tensor([label]), num_classes=len(data))
             for i in data[label]:
-                for j in i[0:3]:
+                for date, j in enumerate(i):
                     for k in j[1]:
-                        source_data.append((k.T.astype("float32"),label)) 
-                for j in [ i[3] ]: # this seems dumb, just for sake of pretty alignment
-                    for k in j[1]: # delete this line if we need to put the 50 together
-                        target_data.append((k.T.astype("float32"),label)) 
-                        # shape of k is 256 * 2
-        return source_data,target_data 
+                        self.domained_data[date].append((k.T.astype("float32"),label, date)) 
+                        
     
     def calc_coeff(self, iter_num, high=1.0, low=0.0, alpha=10.0, max_iter=1000.0):
         kick_in_iter = self.config['experiment'].get('adv_coeff_kick_in_iter')
@@ -124,5 +142,18 @@ class Baseline_Resnet(PL.LightningModule):
             coeff_param = 20.0
         return np.float(coeff_param* (high - low) / (1.0 + np.exp(-alpha*iter_num / max_iter)) - (high - low) + low)
 
-                
+class ConcatDataset(torch.utils.data.Dataset):
+    def __init__(self, datasets):
+        self.datasets = datasets
+
+    def __getitem__(self, i):
+        return tuple(d[i] for d in self.datasets)
+        
+        # print(len(combined))
+        # return zip(*combined)
+        # unzipped_data, unzipped_label, unzipped_date = zip(*combined)
+        # return np.concatenate(unzipped_data), np.array(unzipped_label), np.array(unzipped_date)
+
+    def __len__(self):
+        return min(len(d) for d in self.datasets)                
 

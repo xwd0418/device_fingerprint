@@ -50,8 +50,8 @@ if __name__ == "__main__":
     name, version = exp_name.split('/')
     if override_version:
         version = override_version  
-    os.makedirs(os.path.join(log_dir,name,version), exist_ok=True)   
-    shutil.copy2(config_file_path,os.path.join(log_dir,name,version))
+    # os.makedirs(os.path.join(log_dir,name,version), exist_ok=True)   
+    # shutil.copy2(config_file_path,os.path.join(log_dir,name+"_new_loader",version))
     
     trainer = PL.Trainer(
         accelerator="gpu",
@@ -59,7 +59,7 @@ if __name__ == "__main__":
         strategy = 'auto',
         max_epochs=config['experiment']['num_epochs'],
         # logger=CSVLogger(save_dir=log_dir),
-        logger = TensorBoardLogger(save_dir=log_dir, name=name, version=version),
+        logger = TensorBoardLogger(save_dir=log_dir, name=name+"_new_loader", version=version),
         callbacks=[checkpoint_callback,early_stop_callback],
     )
     # tuner = Tuner(trainer)

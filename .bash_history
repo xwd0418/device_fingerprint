@@ -95,3 +95,8 @@ tensorboard --logdir exps/MMD_AAE/
 pip install tensorboard
 tensorboard --logdir exps/MMD_AAE/
 pip install git+https://github.com/Noble-Lab/casanovo.git#egg=casanovo
+pip list | grep torch
+tensorboard --logdir exps/resnet/
+python main.py resnet/resnet_v1
+python main.py resnet/resnet18_v1
+python main.py resnet/resnet18_v1
