@@ -8,10 +8,11 @@ class MMD_AAE(Baseline_Resnet):
     def __init__(self, config):
         super().__init__(config)
         self.decoder =  Decoder(256, 2, self.config['model']['linear'])
-        self.discriminator = Discriminator(in_feature=512, 
+        self.discriminator = Discriminator(in_feature=512*8, 
                                            hidden_size=self.config['model']['adv_hidden_size']
                                            )
         self.adv_criterion = DALoss()
+        self.reconstruct_criterion= nn.MSELoss()
         
     def training_step(self, batch, batch_idx):
         x, y, date = self.unpack_batch(batch, need_date=True)
@@ -25,10 +26,10 @@ class MMD_AAE(Baseline_Resnet):
         if self.config['experiment']['recontruct_coeff']:
             
             decoded_original_signal = self.decoder(feature)
-            reconstruct_loss = nn.MSELoss(decoded_original_signal,x)
+            reconstruct_loss = self.reconstruct_criterion(decoded_original_signal,x)
             loss += self.config['experiment']['recontruct_coeff']*reconstruct_loss  
         
-        if self.config['experiment']['MME_coeff']:
+        if self.config['experiment']['MMD_coeff']:
             idx1, idx2, idx3 = date==0, date==1, date==2
             
             feat1, feat2, feat3 = feature[idx1], feature[idx2], feature[idx3]
@@ -40,7 +41,8 @@ class MMD_AAE(Baseline_Resnet):
         if self.config['experiment']['adv_coeff']:
             coeff = self.calc_coeff(self.global_step)
             feat = feature.view(len(feature), -1)
-            prior_feat = torch.tensor(np.random.laplace(loc=0,scale=0.1,size=feat.shape))
+            prior_feat = torch.tensor(np.random.laplace(loc=0,scale=0.1,size=feat.shape)).float()
+            prior_feat = prior_feat.to(feat)
             feature_together = torch.cat([feat, prior_feat], dim=0)
             domain_prediction = self.discriminator(feature_together, coeff)
             adv_loss = self.adv_criterion(domain_prediction,coeff)
@@ -48,15 +50,14 @@ class MMD_AAE(Baseline_Resnet):
             
         return loss
      
-    def unpack_batch(batch, need_date=False):
+    def unpack_batch(self, batch, need_date=False):
+        x,y,date = batch    
         if need_date:
-            x,y,date = batch    
             return x,y,date
         else:
-            x,y = batch
             return x,y
     def get_all(self) :
-        pickleFile = open("/root/device_fingerprint/dataset/ManyTx.pkl","rb")
+        pickleFile = open("/root/dataset/ManyTx.pkl","rb")
         all_info = pickle.load(pickleFile)
         data = all_info['data']
 

@@ -68,8 +68,14 @@ class Baseline_Resnet(PL.LightningModule):
         return x,y
     
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.config['experiment']['learning_rate'])
-    
+     
+        # print(self.parameters())
+        optimizer = torch.optim.Adam(self.parameters(),
+                                    lr= self.config['experiment']['learning_rate'],
+                                    weight_decay=0.0005)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5)
+        return {'optimizer': optimizer,}
+
     def train_dataloader(self):
         return DataLoader(self.df_data_val, batch_size=self.config['dataset']['batch_size'], num_workers = 32)
 
@@ -92,7 +98,7 @@ class Baseline_Resnet(PL.LightningModule):
         return model
             
     def get_all(self) :
-        pickleFile = open("/root/device_fingerprint/dataset/ManyTx.pkl","rb")
+        pickleFile = open("/root/dataset/ManyTx.pkl","rb")
         all_info = pickle.load(pickleFile)
         data = all_info['data']
 

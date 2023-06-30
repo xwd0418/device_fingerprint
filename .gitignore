@@ -2,3 +2,6 @@
 /configs
 /dataset
 /exps
+.vscode*/
+.cache/
+*.pyc

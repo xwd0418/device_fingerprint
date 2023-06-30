@@ -12,6 +12,7 @@ class DALoss(nn.Module):
         batch_size = ad_out.shape[0]//2
         if dc_target == None:
            dc_target = torch.cat((torch.ones(batch_size), torch.zeros(batch_size)), 0).float()
+        dc_target = dc_target.to(ad_out)
         loss = self.criterion(ad_out.view(-1), dc_target.view(-1))
         # after_sig = nn.Sigmoid()(ad_out).squeeze()
         # loss = nn.BCELoss(reduction='none')(after_sig, dc_target)
