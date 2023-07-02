@@ -56,13 +56,14 @@ if __name__ == "__main__":
     
     trainer = PL.Trainer(
         accelerator="gpu",
-        devices=torch.cuda.device_count(),
+        devices="auto",
         strategy = 'auto',
-        max_epochs=config['experiment']['num_epochs'],
+        max_epochs=1000,
         # logger=CSVLogger(save_dir=log_dir),
         logger = TensorBoardLogger(save_dir=log_dir, name=name, version=version),
         callbacks=[checkpoint_callback,early_stop_callback, lr_monitor_callback],
         reload_dataloaders_every_n_epochs=1,
+        log_every_n_steps=40
     )
     # tuner = Tuner(trainer)
     # tuner.scale_batch_size(model, mode="power")

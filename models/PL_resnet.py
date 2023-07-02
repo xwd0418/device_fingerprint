@@ -40,14 +40,17 @@ class Baseline_Resnet(PL.LightningModule):
 
         return loss
     
+    # def training_step_end(self, training_step_outputs):
+    #     return {'loss': training_step_outputs['loss'].sum()}
+    
     def validation_step(self, batch, batch_idx):
         x, y = self.unpack_batch(batch)
         logits = self(x)
         loss = self.criterion(logits, y)
         preds = torch.argmax(logits, dim=1)
         self.val_accuracy(preds, y)
-        self.log("val/loss", loss, prog_bar=False)
-        self.log("val/acc", self.val_accuracy, prog_bar=True)
+        self.log("val/loss", loss, prog_bar=False, sync_dist=True)
+        self.log("val/acc", self.val_accuracy, prog_bar=True, sync_dist=True)
 
         
     def test_step(self, batch, batch_idx):
@@ -107,7 +110,7 @@ class Baseline_Resnet(PL.LightningModule):
     def test_dataloader(self):
         return DataLoader(self.df_data_test, 
                           batch_size=self.config['dataset']['batch_size'], 
-                          num_workers = 32)
+                          num_workers=32)
     
     def setup(self, stage = None):  
         self.get_all()
