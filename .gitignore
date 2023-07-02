@@ -1,7 +1,10 @@
 /.vscode
 /configs
 /dataset
-/exps
+/exps*
 .vscode*/
 .cache/
 *.pyc
+.*/
+inspect.ipynb
+.bash_history

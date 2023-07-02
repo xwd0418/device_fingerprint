@@ -6,6 +6,7 @@ if __name__ == "__main__":
     # 样本数量可以不同，特征数目必须相同
 
     # 100和90是样本数量，50是特征数目
+    #stop using chinese comment code!
     data_1 = torch.tensor(np.random.normal(loc=0,scale=10,size=(100,50)))
     data_2 = torch.tensor(np.random.normal(loc=10,scale=10,size=(90,50)))
     print("MMD Loss:",mmd(data_1,data_2))

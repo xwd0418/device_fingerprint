@@ -19,9 +19,9 @@ if __name__ == "__main__":
 
     if len(sys.argv) > 1:
         exp_name = sys.argv[1]
-    override_version = None
+    override_name = None
     if len(sys.argv) > 2:
-        override_version = sys.argv[2]
+        override_name = sys.argv[2]
 
     print("Running Experiment: ", exp_name)
     config_file_path = f'/root/configs/'+ exp_name + '.json'
@@ -37,10 +37,10 @@ if __name__ == "__main__":
         model = MMD_AAE(config)            
     '''callbacks'''
     checkpoint_callback = PL.callbacks.ModelCheckpoint(monitor="val/loss", mode="min", save_last=True)
-    early_stop_callback = EarlyStopping(monitor="val/loss", mode="min")
-    # lr_monitor_callback = LearningRateMonitor(logging_interval='step')
+    early_stop_callback = EarlyStopping(monitor="val/loss", mode="min", patience=20)
+    lr_monitor_callback = LearningRateMonitor(logging_interval='step')
     # swa_callback = StochasticWeightAveraging(swa_lrs=1e-2)
-    log_dir = f'/root/exps/' 
+    log_dir = f'/root/exps_lr/' 
     os.makedirs(log_dir, exist_ok=True)
 
 
@@ -48,8 +48,9 @@ if __name__ == "__main__":
     
     # version = None
     name, version = exp_name.split('/')
-    if override_version:
-        version = override_version  
+    # name=name+"_new_loader"
+    if override_name:
+        name = override_name  
     # os.makedirs(os.path.join(log_dir,name,version), exist_ok=True)   
     # shutil.copy2(config_file_path,os.path.join(log_dir,name+"_new_loader",version))
     
@@ -59,8 +60,9 @@ if __name__ == "__main__":
         strategy = 'auto',
         max_epochs=config['experiment']['num_epochs'],
         # logger=CSVLogger(save_dir=log_dir),
-        logger = TensorBoardLogger(save_dir=log_dir, name=name+"_new_loader", version=version),
-        callbacks=[checkpoint_callback,early_stop_callback],
+        logger = TensorBoardLogger(save_dir=log_dir, name=name, version=version),
+        callbacks=[checkpoint_callback,early_stop_callback, lr_monitor_callback],
+        reload_dataloaders_every_n_epochs=1,
     )
     # tuner = Tuner(trainer)
     # tuner.scale_batch_size(model, mode="power")

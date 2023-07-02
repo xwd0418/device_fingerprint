@@ -39,7 +39,7 @@ class Baseline_Resnet(PL.LightningModule):
         self.log("train/acc", self.train_accuracy, prog_bar=True)   
 
         return loss
-
+    
     def validation_step(self, batch, batch_idx):
         x, y = self.unpack_batch(batch)
         logits = self(x)
@@ -51,7 +51,7 @@ class Baseline_Resnet(PL.LightningModule):
 
         
     def test_step(self, batch, batch_idx):
-        x, y = self.unpack_batch(batch)
+        x, y = self.unpack_batch(batch, target_domain_loader=True)
         logits = self(x)
         loss = self.criterion(logits, y)
         preds = torch.argmax(logits, dim=1)
@@ -61,10 +61,13 @@ class Baseline_Resnet(PL.LightningModule):
         self.log("test/loss", loss, prog_bar=False)
         self.log("test/acc", self.test_accuracy, prog_bar=True)
         
-    def unpack_batch(self, batch, need_date=False):
-        # x,y,date = zip(*batch)   
-        # x,y,date = torch.cat(x), torch.cat(y),torch.cat(date) 
-        x,y,date = batch
+    def unpack_batch(self, batch, need_date=False, target_domain_loader = False):
+        if target_domain_loader:
+            x,y,date = batch
+        else:
+            x,y,date = zip(*batch)   
+            x,y,date = torch.cat(x), torch.cat(y),torch.cat(date) 
+            
         if need_date:
             return x,y,date
         else:
@@ -83,20 +86,22 @@ class Baseline_Resnet(PL.LightningModule):
         return {'optimizer': optimizer,"lr_scheduler":scheduler, "monitor":"val/loss"}
 
     def train_dataloader(self):
+        for d in self.df_data_train:
+            random.shuffle(d.indices)
         return DataLoader(
-            self.domained_data[2], # ConcatDataset(self.df_data_train),
+            ConcatDataset(self.df_data_train),
             batch_size=self.config['dataset']['batch_size']//3,
             num_workers=32,
-            # pin_memory=True
+            pin_memory=True
         )
 
 
     def val_dataloader(self):
         return DataLoader(
-            self.domained_data[0],# ConcatDataset(self.df_data_val),
+            ConcatDataset(self.df_data_val),
             batch_size=self.config['dataset']['batch_size']//3,
             num_workers=32,
-            # pin_memory=True
+            pin_memory=True
         )
 
     def test_dataloader(self):
