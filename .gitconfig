@@ -4,4 +4,4 @@
 [core]
 	autocrlf = false
 [credential]
-	helper = "!f() { /root/.vscode-server/bin/b380da4ef1ee00e224a15c1d4d9793e27c2b6302/node /tmp/vscode-remote-containers-b5c7adcc-2e7f-4cf7-941d-e677f9780be3.js git-credential-helper $*; }; f"
+	helper = "!f() { /root/.vscode-server/bin/441438abd1ac652551dbe4d408dfcec8a499b8bf/node /tmp/vscode-remote-containers-71a2af4125ea91dde98eb4c187971f38970a1f7c.js $*; }; f"

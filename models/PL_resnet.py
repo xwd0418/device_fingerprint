@@ -16,14 +16,17 @@ from models.resnet import resnet18
 class Baseline_Resnet(PL.LightningModule):
     def __init__(self,config):
         super().__init__()
+        print("model initializing")
         self.config = config
-        # self.batch_size = config['dataset']['batch_size']
+        self.batch_size = config['dataset']['batch_size']
         self.num_classes = 150
         self.encoder = self.get_model()
         self.criterion = torch.nn.CrossEntropyLoss()
         self.train_accuracy = Accuracy(task="multiclass", num_classes=self.num_classes)
         self.val_accuracy = Accuracy(task="multiclass", num_classes=self.num_classes)
         self.test_accuracy = Accuracy(task="multiclass", num_classes=self.num_classes)
+        self.loader_num_worker = 2#os.cpu_count()
+        self.parepare_dataset()
         
     def forward(self, x, feat=False):
         x = self.encoder(x, feat=feat)
@@ -35,8 +38,8 @@ class Baseline_Resnet(PL.LightningModule):
         loss = self.criterion(logits, y)
         preds = torch.argmax(logits, dim=1)
         self.train_accuracy(preds, y)
-        self.log("train/loss", loss,  prog_bar=False)
-        self.log("train/acc", self.train_accuracy, prog_bar=True)   
+        self.log("train/loss", loss,  prog_bar=False, on_epoch=self.giant_batch_size, sync_dist=self.giant_batch_size)
+        self.log("train/acc", self.train_accuracy, prog_bar=True,  on_epoch=self.giant_batch_size, sync_dist=self.giant_batch_size)   
 
         return loss
     
@@ -63,6 +66,7 @@ class Baseline_Resnet(PL.LightningModule):
         # Calling self.log will surface up scalars for you in TensorBoard
         self.log("test/loss", loss, prog_bar=False)
         self.log("test/acc", self.test_accuracy, prog_bar=True)
+        self.test_acc = self.test_accuracy.compute()
         
     def unpack_batch(self, batch, need_date=False, target_domain_loader = False):
         if target_domain_loader:
@@ -91,29 +95,31 @@ class Baseline_Resnet(PL.LightningModule):
     def train_dataloader(self):
         for d in self.df_data_train:
             random.shuffle(d.indices)
+        self.giant_batch_size = len(self.df_data_train)//self.batch_size < 50
         return DataLoader(
             ConcatDataset(self.df_data_train),
-            batch_size=self.config['dataset']['batch_size']//3,
-            num_workers=32,
-            pin_memory=True
+            batch_size=self.batch_size,
+            num_workers=self.loader_num_worker,
+            pin_memory=True,
+            persistent_workers=True
         )
 
 
     def val_dataloader(self):
         return DataLoader(
             ConcatDataset(self.df_data_val),
-            batch_size=self.config['dataset']['batch_size']//3,
-            num_workers=32,
-            pin_memory=True
+            batch_size=self.batch_size,
+            num_workers=self.loader_num_worker,
+            pin_memory=True,
+            persistent_workers=True
         )
 
     def test_dataloader(self):
         return DataLoader(self.df_data_test, 
-                          batch_size=self.config['dataset']['batch_size'], 
-                          num_workers=32)
+                          batch_size=512, 
+                          num_workers=self.loader_num_worker)
     
     def setup(self, stage = None):  
-        self.get_all()
         self.df_data_train, self.df_data_val = [],[]
         for i in range(3):
             val_num = len(self.domained_data[i])//10
@@ -128,18 +134,24 @@ class Baseline_Resnet(PL.LightningModule):
         model.conv1 = nn.Conv1d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)            
         return model
             
-    def get_all(self) :
-        pickleFile = open("/root/dataset/ManyTx.pkl","rb")
-        all_info = pickle.load(pickleFile)
-        data = all_info['data']
-
+    def parepare_dataset(self) :
+        print("preparing dataloader")
+        # pickleFile = open("/root/dataset/ManyTx.pkl","rb")
+        # all_info = pickle.load(pickleFile)
+        # data = all_info['data']
+        data = np.load('/root/dataset/all_receiver_data.npy', allow_pickle=True)
+        print("pickle file loaded")
         self.domained_data = [],[],[],[]
         for label in range(len(data)):
             # one_hot_encoded = F.one_hot(torch.tensor([label]), num_classes=len(data))
             for i in data[label]:
                 for date, j in enumerate(i):
-                    for k in j[1]:
+                    for k in j[1]: # remove this [0:10] later!!!
                         self.domained_data[date].append((k.T.astype("float32"),label, date)) 
+                if self.config['dataset'].get('single_receiver') :
+                    break       
+        print("finished preparing dataloader")
+
                         
     
     def calc_coeff(self, iter_num, high=1.0, low=0.0, alpha=10.0, max_iter=1000.0):

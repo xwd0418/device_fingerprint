@@ -6,5 +6,12 @@
 .cache/
 *.pyc
 .*/
-inspect.ipynb
-.bash_history
+*.ipynb
+.*_history
+dp.sqlite3
+*.db
+optuna*
+SQLite/
+FashionMNIST/
+lightning_logs/
+simple_main.py
