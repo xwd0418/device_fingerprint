@@ -9,7 +9,6 @@ import pytorch_lightning as PL
 from pytorch_lightning.loggers import CSVLogger
 from torch import nn
 from torch.nn import functional as F
-from torch.utils.data import DataLoader, random_split
 from torchmetrics import Accuracy
 from models.resnet import resnet18
 
@@ -18,15 +17,13 @@ class Baseline_Resnet(PL.LightningModule):
         super().__init__()
         print("model initializing")
         self.config = config
-        self.batch_size = config['dataset']['batch_size']
         self.num_classes = 150
         self.encoder = self.get_model()
         self.criterion = torch.nn.CrossEntropyLoss()
         self.train_accuracy = Accuracy(task="multiclass", num_classes=self.num_classes)
         self.val_accuracy = Accuracy(task="multiclass", num_classes=self.num_classes)
         self.test_accuracy = Accuracy(task="multiclass", num_classes=self.num_classes)
-        self.loader_num_worker = 2#os.cpu_count()
-        self.parepare_dataset()
+        self.train_log_on_epoch = True
         
     def forward(self, x, feat=False):
         x = self.encoder(x, feat=feat)
@@ -38,8 +35,10 @@ class Baseline_Resnet(PL.LightningModule):
         loss = self.criterion(logits, y)
         preds = torch.argmax(logits, dim=1)
         self.train_accuracy(preds, y)
-        self.log("train/loss", loss,  prog_bar=False, on_epoch=self.giant_batch_size, sync_dist=self.giant_batch_size)
-        self.log("train/acc", self.train_accuracy, prog_bar=True,  on_epoch=self.giant_batch_size, sync_dist=self.giant_batch_size)   
+        self.log("train/loss", loss,  prog_bar=False, on_step=not self.train_log_on_epoch,
+                 on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch)
+        self.log("train/acc", self.train_accuracy, prog_bar=True, on_step=not self.train_log_on_epoch, 
+                 on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch)   
 
         return loss
     
@@ -84,75 +83,19 @@ class Baseline_Resnet(PL.LightningModule):
      
         # print(self.parameters())
         if self.config['experiment'].get('optimizer') == "SGD":
-            optimizer = torch.optim.SGD(self.parameters(),lr =1, momentum=0.9, weight_decay=0.005, nesterov=True)
+            optimizer = torch.optim.SGD(self.parameters(),lr =self.config['experiment']['learning_rate'], momentum=0.9, weight_decay=0.005, nesterov=True)
         else:
             optimizer = torch.optim.Adam(self.parameters(),
                                     lr= self.config['experiment']['learning_rate'],
                                     weight_decay=0.0005)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5)
         return {'optimizer': optimizer,"lr_scheduler":scheduler, "monitor":"val/loss"}
-
-    def train_dataloader(self):
-        for d in self.df_data_train:
-            random.shuffle(d.indices)
-        self.giant_batch_size = len(self.df_data_train)//self.batch_size < 50
-        return DataLoader(
-            ConcatDataset(self.df_data_train),
-            batch_size=self.batch_size,
-            num_workers=self.loader_num_worker,
-            pin_memory=True,
-            persistent_workers=True
-        )
-
-
-    def val_dataloader(self):
-        return DataLoader(
-            ConcatDataset(self.df_data_val),
-            batch_size=self.batch_size,
-            num_workers=self.loader_num_worker,
-            pin_memory=True,
-            persistent_workers=True
-        )
-
-    def test_dataloader(self):
-        return DataLoader(self.df_data_test, 
-                          batch_size=512, 
-                          num_workers=self.loader_num_worker)
-    
-    def setup(self, stage = None):  
-        self.df_data_train, self.df_data_val = [],[]
-        for i in range(3):
-            val_num = len(self.domained_data[i])//10
-            t,v = random_split(self.domained_data[i], [len(self.domained_data[i])-val_num,val_num])
-            self.df_data_train.append(t)
-            self.df_data_val.append(v)
-        self.df_data_test = self.domained_data[3]
-            
+        
     def get_model(self):
         model = resnet18(pretrained=False, num_classes=self.num_classes)
         in_channels = 2
         model.conv1 = nn.Conv1d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)            
-        return model
-            
-    def parepare_dataset(self) :
-        print("preparing dataloader")
-        # pickleFile = open("/root/dataset/ManyTx.pkl","rb")
-        # all_info = pickle.load(pickleFile)
-        # data = all_info['data']
-        data = np.load('/root/dataset/all_receiver_data.npy', allow_pickle=True)
-        print("pickle file loaded")
-        self.domained_data = [],[],[],[]
-        for label in range(len(data)):
-            # one_hot_encoded = F.one_hot(torch.tensor([label]), num_classes=len(data))
-            for i in data[label]:
-                for date, j in enumerate(i):
-                    for k in j[1]: # remove this [0:10] later!!!
-                        self.domained_data[date].append((k.T.astype("float32"),label, date)) 
-                if self.config['dataset'].get('single_receiver') :
-                    break       
-        print("finished preparing dataloader")
-
-                        
+        return model                      
     
     def calc_coeff(self, iter_num, high=1.0, low=0.0, alpha=10.0, max_iter=1000.0):
         kick_in_iter = self.config['experiment'].get('adv_coeff_kick_in_iter')
@@ -161,19 +104,4 @@ class Baseline_Resnet(PL.LightningModule):
         else : 
             coeff_param = 20.0
         return np.float(coeff_param* (high - low) / (1.0 + np.exp(-alpha*iter_num / max_iter)) - (high - low) + low)
-
-class ConcatDataset(torch.utils.data.Dataset):
-    def __init__(self, datasets):
-        self.datasets = datasets
-
-    def __getitem__(self, i):
-        return tuple(d[i] for d in self.datasets)
-        
-        # print(len(combined))
-        # return zip(*combined)
-        # unzipped_data, unzipped_label, unzipped_date = zip(*combined)
-        # return np.concatenate(unzipped_data), np.array(unzipped_label), np.array(unzipped_date)
-
-    def __len__(self):
-        return min(len(d) for d in self.datasets)                
 

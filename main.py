@@ -7,6 +7,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 # from pytorch_lightning.tuner import Tuner
 import optuna
 from optuna.integration import PyTorchLightningPruningCallback
+from data_module import DeviceFingerpringDataModule
 
 def objective(trial: optuna.trial.Trial) -> float:
     if len(sys.argv) > 1:
@@ -54,7 +55,12 @@ def objective(trial: optuna.trial.Trial) -> float:
     if config['model']['name'] == 'resnet18':
         model = Baseline_Resnet(config)
     if config['model']['name'] == 'MMD_AAE':
-        model = MMD_AAE(config)            
+        model = MMD_AAE(config)    
+        
+    datamodule = DeviceFingerpringDataModule(config =config)
+    # model.giant_batch_size = len(datamodule.df_data_train)//config['dataset']['batch_size'] < 50
+    
+        
     '''callbacks'''
     checkpoint_callback = PL.callbacks.ModelCheckpoint(monitor="val/loss", mode="min", save_last=True)
     early_stop_callback = EarlyStopping(monitor="val/loss", mode="min", patience=20)
@@ -84,9 +90,9 @@ def objective(trial: optuna.trial.Trial) -> float:
     hyperparameters = config
     trainer.logger.log_hyperparams(hyperparameters)
     # Train the model ⚡
-    trainer.fit(model)
+    trainer.fit(model, datamodule=datamodule)
     if config['test']:
-        trainer.test(ckpt_path='best')
+        trainer.test(ckpt_path='best', datamodule=datamodule)
     #    trainer.test(model, ckpt_path='/root/exps/resnet/resnet18_v1/logs/lightning_logs/version_2/checkpoints/epoch=22-step=27485.ckpt') 
     
     prune_callback.check_pruned()
@@ -117,7 +123,7 @@ if __name__ == "__main__":
             
     pruner = optuna.pruners.NopPruner() if config.get('no_prune') else optuna.pruners.MedianPruner()
 
-    storage = f"sqlite:///SQLite/{exp_name.split('/')[-1]}.db"
+    storage = f"sqlite:///Database/{exp_name.split('/')[-1]}.db"
     print("creating a new study")
     study = optuna.create_study(
         study_name=exp_name,
