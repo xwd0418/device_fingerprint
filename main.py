@@ -92,13 +92,12 @@ def objective(trial: optuna.trial.Trial) -> float:
     # Train the model ⚡
     trainer.fit(model, datamodule=datamodule)
     if config['test']:
-        trainer.test(ckpt_path='best', datamodule=datamodule)
-    #    trainer.test(model, ckpt_path='/root/exps/resnet/resnet18_v1/logs/lightning_logs/version_2/checkpoints/epoch=22-step=27485.ckpt') 
-    
+        trainer.test(model,ckpt_path='best', datamodule=datamodule)
+        
     prune_callback.check_pruned()
 
     if config.get('optimize_test_acc'):
-        return model.test_acc
+        return trainer.callback_metrics["test/acc"].item()
     return trainer.callback_metrics["val/acc"].item()
 
                            
@@ -107,7 +106,7 @@ if __name__ == "__main__":
     print("cpu count: ", os.cpu_count())
     # torch.set_float32_matmul_precision("medium")
     
-    seed = 10086
+    seed = 3407
     np.random.seed(seed)
     random.seed(seed)
     torch.manual_seed(seed)

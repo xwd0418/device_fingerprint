@@ -24,6 +24,7 @@ class Baseline_Resnet(PL.LightningModule):
         self.val_accuracy = Accuracy(task="multiclass", num_classes=self.num_classes)
         self.test_accuracy = Accuracy(task="multiclass", num_classes=self.num_classes)
         self.train_log_on_epoch = True
+        self.test_result = -1
         
     def forward(self, x, feat=False):
         x = self.encoder(x, feat=feat)
@@ -63,10 +64,12 @@ class Baseline_Resnet(PL.LightningModule):
         self.test_accuracy(preds, y)
 
         # Calling self.log will surface up scalars for you in TensorBoard
-        self.log("test/loss", loss, prog_bar=False)
-        self.log("test/acc", self.test_accuracy, prog_bar=True)
-        self.test_acc = self.test_accuracy.compute()
-        
+        self.log("test/loss", loss, prog_bar=False, sync_dist=True)
+        self.log("test/acc", self.test_accuracy, prog_bar=True, sync_dist=True)
+        # return self.test_accuracy.compute()
+        # return 0
+      
+            
     def unpack_batch(self, batch, need_date=False, target_domain_loader = False):
         if target_domain_loader:
             x,y,date = batch

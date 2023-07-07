@@ -4,4 +4,4 @@
 [core]
 	autocrlf = false
 [credential]
-	helper = "!f() { /root/.vscode-server/bin/441438abd1ac652551dbe4d408dfcec8a499b8bf/node /tmp/vscode-remote-containers-71a2af4125ea91dde98eb4c187971f38970a1f7c.js $*; }; f"
+	helper = "!f() { /root/.vscode-server/bin/441438abd1ac652551dbe4d408dfcec8a499b8bf/node /tmp/vscode-remote-containers-ca1a98fb483b37b94b0356d13e62f5be5d47a6ec.js $*; }; f"

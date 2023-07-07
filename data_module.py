@@ -44,7 +44,7 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
     def val_dataloader(self):
         return DataLoader(
             ConcatDataset(self.df_data_val),
-            batch_size=self.batch_size,
+            batch_size=4096,
             pin_memory=True,
             # num_workers=self.loader_num_worker,
             # persistent_workers=True
@@ -52,8 +52,10 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
 
     def test_dataloader(self):
         return DataLoader(self.df_data_test, 
-                          batch_size=512, 
-                          num_workers=self.loader_num_worker)
+                          batch_size=4096, 
+                        #   num_workers=self.loader_num_worker,
+                        #   persistent_workers=True
+                          )
     
     def setup(self, stage = None):
         print("shuffling dataloader")  
