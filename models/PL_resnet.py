@@ -17,6 +17,7 @@ class Baseline_Resnet(PL.LightningModule):
         super().__init__()
         print("model initializing")
         self.config = config
+        print(config)
         self.num_classes = 150
         self.encoder = self.get_model()
         self.criterion = torch.nn.CrossEntropyLoss()
@@ -100,8 +101,8 @@ class Baseline_Resnet(PL.LightningModule):
         model.conv1 = nn.Conv1d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)            
         return model                      
     
-    def calc_coeff(self, iter_num, high=1.0, low=0.0, alpha=10.0, max_iter=1000.0):
-        kick_in_iter = self.config['experiment'].get('adv_coeff_kick_in_iter')
+    def calc_coeff(self, iter_num, high=1.0, low=0.0, alpha=10.0, max_iter=1000.0, kick_in_iter=None):
+        
         if kick_in_iter:
             coeff_param = kick_in_iter/10
         else : 

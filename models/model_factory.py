@@ -95,9 +95,9 @@ class Decoder(nn.Module):
     
 '''discriminator!'''
 class Discriminator(nn.Module):
-  def __init__(self, in_feature, hidden_size):
+  def __init__(self, in_feature, hidden_units_size):
     super(Discriminator, self).__init__()
-    self.mlp = MLP(in_feature, [hidden_size,hidden_size,1], dropout=0.5)
+    self.mlp = MLP(in_feature, hidden_units_size+[1], dropout=0.5)
 
   def forward(self, x, coeff):
     # x = x * 1.0

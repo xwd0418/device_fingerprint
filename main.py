@@ -48,8 +48,13 @@ def objective(trial: optuna.trial.Trial) -> float:
                             else: step = v[2]
                         elif len(v)>3: raise Exception("too many arguments for optuna")
                         sub_cfg[k] = trial.suggest_float(sub_name+"/"+k, v[0], v[1], log=log, step=step)
-                    
-
+    
+    if config['model']['name'] == "MMD_AAE":
+        n_layers = config['model']['adv_layer_nums']
+        config['model']['hidden_units_size'] = [
+            trial.suggest_int(f"adv_units_l{i+1}", config['model']['adv_hidden_size_min_guess'],
+                            config['model']['adv_hidden_size_max_guess']  , log=True) for i in range(n_layers)
+        ]  
 
     # Init our model
     if config['model']['name'] == 'resnet18':
