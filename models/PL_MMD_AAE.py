@@ -87,7 +87,9 @@ class MMD_AAE(Baseline_Resnet):
             feat1, feat2, feat3 = feature[idx1], feature[idx2], feature[idx3]
             feat1, feat2, feat3 = feat1.view(len(feat1), -1), feat2.view(len(feat2), -1), feat3.view(len(feat3), -1)
             assert (len(feat1)+len(feat2)+len(feat3)==len(feature))
-            mmd1, mmd2, mmd3 = mmd(feat1,feat1),mmd(feat1,feat3),mmd(feat2,feat3),
+            mmd1 = mmd(feat1,feat2)
+            mmd2 = mmd(feat1,feat3)
+            mmd3 = mmd(feat2,feat3)
             loss +=  self.config['experiment']['MMD_coeff']*(mmd1+mmd2+mmd3)
             self.log("val/mmd", mmd1+mmd2+mmd3, sync_dist=True)
         

@@ -1,7 +1,0 @@
-[user]
-	email = w6xu@ucsd.edu
-	name = Wangdong Xu
-[core]
-	autocrlf = false
-[credential]
-	helper = "!f() { /root/.vscode-server/bin/441438abd1ac652551dbe4d408dfcec8a499b8bf/node /tmp/vscode-remote-containers-ca1a98fb483b37b94b0356d13e62f5be5d47a6ec.js $*; }; f"

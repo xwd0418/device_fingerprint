@@ -28,7 +28,7 @@ class ConDG(Baseline_Resnet):
             for i in range(self.num_class):
                 idx = y==i
                 con_domain_loss += condition_domain_classifiers[i](feature[idx], y[idx], date[idx]) 
-        loss += self.config['experiment']['con_domain_coeff'] * con_domain_loss
+            loss += self.config['experiment']['con_domain_coeff'] * con_domain_loss
     
         # weighted domain classifier
         if self.config['experiment']['weighted_domain_coeff']:
@@ -61,11 +61,11 @@ class ConDomainClassifier(nn.Module):
         
         self.classfier = MLP(in_feat, out_class, hidden)
         self.loss = torch.nn.CrossEntropyLoss()
-        self.num_domian_labels = 3
+        self.num_domain_labels = 3
 
     def forward(self, feature,y,date,coeff=1):
-        loss = [0 for i in range(self.num_domian_labels)]
-        for i in range(self.num_domian_labels):
+        loss = [0 for i in range(self.num_domain_labels)]
+        for i in range(self.num_domain_labels):
             idx = date==i
             loss+=self.loss(feature[idx],y[idx])
     

@@ -44,7 +44,7 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
     def val_dataloader(self):
         return DataLoader(
             ConcatDataset(self.df_data_val),
-            batch_size=4096,
+            batch_size=512,
             pin_memory=True,
             # num_workers=self.loader_num_worker,
             # persistent_workers=True

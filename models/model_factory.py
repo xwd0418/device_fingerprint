@@ -101,7 +101,8 @@ class Discriminator(nn.Module):
 
   def forward(self, x, coeff):
     # x = x * 1.0
-    x.register_hook(grl_hook(coeff))
+    if self.training:
+        x.register_hook(grl_hook(coeff))
     y = self.mlp(x)
     # y = self.sigmoid(y)
     return y
