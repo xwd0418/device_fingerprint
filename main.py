@@ -19,7 +19,7 @@ def objective(trial: optuna.trial.Trial) -> float:
     name, version = exp_name.split('/')
     # name=name+"_new_loader"
     if override_name:
-        name = override_name  
+        name = "dev"  
     # os.makedirs(os.path.join(log_dir,name,version), exist_ok=True)   
     # shutil.copy2(config_file_path,os.path.join(log_dir,name+"_new_loader",version))
     config_file_path = f'/root/configs/'+ exp_name + '.json'
@@ -62,7 +62,7 @@ def objective(trial: optuna.trial.Trial) -> float:
     if config['model']['name'] == 'MMD_AAE':
         model = MMD_AAE(config)    
         
-    datamodule = DeviceFingerpringDataModule(config =config)
+    datamodule = DeviceFingerpringDataModule(config = config)
     # model.giant_batch_size = len(datamodule.df_data_train)//config['dataset']['batch_size'] < 50
     
         
@@ -77,12 +77,13 @@ def objective(trial: optuna.trial.Trial) -> float:
 
 
     # Initialize a trainer
-    
+    max_epoch = 3  if len(sys.argv) > 2 else 1000
+    strategy = 'ddp_spawn' if torch.cuda.device_count() >= 2 else "auto"
     trainer = PL.Trainer(
         accelerator="gpu",
-        devices="auto",
-        strategy = 'ddp_spawn',
-        max_epochs=1000,
+        devices=torch.cuda.device_count(),
+        strategy = strategy,
+        max_epochs = max_epoch,
         # logger=CSVLogger(save_dir=log_dir),
         logger = TensorBoardLogger(save_dir=log_dir, name=name, version=version),
         callbacks=[checkpoint_callback,early_stop_callback, lr_monitor_callback, prune_callback],
@@ -127,7 +128,8 @@ if __name__ == "__main__":
             
     pruner = optuna.pruners.NopPruner() if config.get('no_prune') else optuna.pruners.MedianPruner()
 
-    storage = f"sqlite:///Database/{exp_name.split('/')[-1]}.db"
+    db_name = "_".join(exp_name.split('/')) if len(sys.argv) <= 2 else "dev"
+    storage = f"sqlite:///Database/{db_name}.db"
     print("creating a new study")
     study = optuna.create_study(
         study_name=exp_name,

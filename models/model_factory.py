@@ -130,7 +130,7 @@ class MLP(torch.nn.Sequential):
         hidden_channels: List[int],
         norm_layer: Optional[Callable[..., torch.nn.Module]] = None,
         activation_layer: Optional[Callable[..., torch.nn.Module]] = torch.nn.ReLU,
-        inplace: Optional[bool] = True,
+        inplace: Optional[bool] = False,
         bias: bool = True,
         dropout: float = 0.0,
     ):
