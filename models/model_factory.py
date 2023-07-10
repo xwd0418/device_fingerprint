@@ -1,5 +1,5 @@
 import torch
-import torch.nn as nn
+import torch.nn as nn, numpy as np
 import torch.nn.functional as F 
 from typing import Callable, List, Optional, Sequence, Tuple, Union
 # from torchvision.ops import MLP 
@@ -99,16 +99,53 @@ class Discriminator(nn.Module):
     super(Discriminator, self).__init__()
     self.mlp = MLP(in_feature, hidden_units_size+[1], dropout=0.5)
 
-  def forward(self, x, coeff):
+  def forward(self, x, hook_coeff):
     # x = x * 1.0
     if self.training:
-        x.register_hook(grl_hook(coeff))
+        x.register_hook(grl_hook(hook_coeff))
     y = self.mlp(x)
     # y = self.sigmoid(y)
     return y
-def grl_hook(coeff):
+
+class AdvMLPClassifier(nn.Module):
+    def __init__(self, in_feat_size, out_class, hidden_units_size, 
+                 CE_reduction='none', label_distribution=None, class_conditional=True):
+        super(AdvMLPClassifier, self).__init__()
+        self.classfier = MLP(in_feat_size, hidden_units_size+[out_class])
+        self.loss = torch.nn.CrossEntropyLoss(reduction=CE_reduction)
+        self.class_conditional = class_conditional
+        self.L=150
+        self.label_distribution = label_distribution
+        self.domain_distribution = torch.sum(label_distribution, dim=1)
+        self.total_size = torch.sum(self.domain_distribution)
+        assert(torch.sum(label_distribution[0])==self.domain_distribution[0])
+        
+    def forward(self, feature, y, date, hook_coeff, loss_coeff ):
+        if self.training:
+            feature.register_hook(grl_hook(hook_coeff))
+    
+        prediction = self.classfier(feature.view(len(feature),-1))
+        loss = self.loss(prediction,date)
+        
+        # move to cuda
+        self.label_distribution = self.label_distribution.to(feature)
+        self.total_size = self.total_size.to(feature)
+        self.domain_distribution = self.domain_distribution.to(feature)
+        
+        if self.class_conditional:
+            # loss = loss * self.domain_distribution[date] / self.L / self.label_distribution[date,y]
+            # loss = loss * self.total_size / self.domain_distribution[date] 
+            #cancelling out terms above
+            loss = loss * self.total_size / self.L / self.label_distribution[date,y]
+        else:
+            loss = loss * self.total_size / self.domain_distribution[date]
+            
+        return loss.mean()*loss_coeff
+    
+     
+def grl_hook(hook_coeff):
     def fun1(grad):
-        return -coeff*grad.clone()
+        return -hook_coeff*grad.clone()
     return fun1
 
 class MLP(torch.nn.Sequential):
@@ -137,10 +174,9 @@ class MLP(torch.nn.Sequential):
         # The addition of `norm_layer` is inspired from the implementation of TorchMultimodal:
         # https://github.com/facebookresearch/multimodal/blob/5dec8a/torchmultimodal/modules/layers/mlp.py
         params = {} if inplace is None else {"inplace": inplace}
-
         layers = []
         in_dim = in_channels
-        for hidden_dim in hidden_channels[:-1]:
+        for hidden_dim in hidden_channels[:-1] :
             layers.append(torch.nn.Linear(in_dim, hidden_dim, bias=bias))
             if norm_layer is not None:
                 layers.append(norm_layer(hidden_dim))

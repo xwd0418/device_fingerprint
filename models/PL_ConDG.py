@@ -1,19 +1,45 @@
 from models.PL_resnet import *
 from models.model_factory import *
 from models.loss_module.MMD import mmd
-from models.loss_module.domain_adv_loss import DALoss
+from models.loss_module.JSD import JSD
 
 
 class ConDG(Baseline_Resnet):
-    def __init__(self, config):
+    def __init__(self, config,datamodule):
         super().__init__(config)
         self.num_classes = 150
-        self.condition_domain_classifiers =  
-                [   ConDomainClassifier(in_feat=512*8, out_class=4, hidden=[256]) 
-                    for i in range(self.num_classes) ]
-
+        self.num_domains = 4-1
+        self.JSD = JSD()
+        self.setup_adv_coeffs()
+        
+        self.label_distribution = datamodule.label_distribution
+        # self.condition_domain_classifiers =  [ AdvMLPClassifier(
+        #                             in_feat_size=512*8, out_class=self.num_domains, 
+        #                             hidden_units_size=self.config['model']['con_hidden_units_size'],
+        #                             label_distribution=self.label_distribution,
+        #                             class_conditional=True
+        #                         ) for i in range(self.num_classes) ]
+        for i in range(self.num_classes):
+            setattr(self, f'conditional_classifier_{i}' , 
+                                AdvMLPClassifier(
+                                    in_feat_size=512*8, out_class=self.num_domains, 
+                                    hidden_units_size=self.config['model']['con_hidden_units_size'],
+                                    label_distribution=self.label_distribution,
+                                    class_conditional=True
+                                ) 
+            )
+        self.general_domain_classifier = AdvMLPClassifier(
+                            in_feat_size=512*8, out_class=self.num_domains,
+                            hidden_units_size=self.config['model']['general_hidden_units_size'], 
+                            label_distribution=self.label_distribution,
+                            class_conditional = False
+                            ) # using default reductioon mean 
+        
+        # a 2d array of #{domains} x #{labels} 
         
     def training_step(self, batch, batch_idx):
+        self.setup_adv_coeffs()
+        
         x, y, date = self.unpack_batch(batch, need_date=True)
         logits, feature = self(x, feat=True)
         loss = self.criterion(logits, y)
@@ -23,51 +49,117 @@ class ConDG(Baseline_Resnet):
         self.log("train/acc", self.train_accuracy, prog_bar=True, on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch)
 
         # conditional domain classifier
-        if self.config['experiment']['con_domain_coeff']:
-            con_domain_loss = 0
-            for i in range(self.num_class):
-                idx = y==i
-                con_domain_loss += condition_domain_classifiers[i](feature[idx], y[idx], date[idx]) 
-            loss += self.config['experiment']['con_domain_coeff'] * con_domain_loss
-    
-        # weighted domain classifier
-        if self.config['experiment']['weighted_domain_coeff']:
-            weighted_domain_loss = 0
-            ??
-        loss += self.config['experiment']['weighted_domain_coeff'] * weighted_domain_loss
-        
-        
+        if self.config['experiment']['con_domain_coeff']: 
+            con_domain_loss = 0           
+            for class_idx in range(self.num_classes):
+                idx = y==class_idx
+                if torch.any(idx):
+                    class_feat, class_y, class_date = feature[idx], y[idx], date[idx]
+                    con_domain_loss += getattr(self, f'conditional_classifier_{class_idx}')(class_feat, class_y, class_date,
+                                                hook_coeff=self.con_rgl_coeff, loss_coeff=self.con_loss_coeff) 
+            loss +=  self.config['experiment']['con_domain_coeff'] * con_domain_loss
+            self.log("train/con_domain_loss", con_domain_loss, on_step=not self.train_log_on_epoch,
+                        on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch )
+
+        if self.config['experiment']['weighted_domain_coeff']:   
+            # weighted domain classifier
+            weighted_domain_loss = self.general_domain_classifier(feature, y, date, hook_coeff=self.general_rgl_coeff, loss_coeff=self.general_loss_coeff) 
+            loss += self.config['experiment']['weighted_domain_coeff'] * weighted_domain_loss
+            self.log("train/weighted_domain_loss", weighted_domain_loss, on_step=not self.train_log_on_epoch,
+                     on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch )
+
+
+        if self.config['experiment']['discrepency_metric'] == "MMD":
+            idx1, idx2, idx3 = date==0, date==1, date==2            
+            feat1, feat2, feat3 = feature[idx1], feature[idx2], feature[idx3]
+            feat1, feat2, feat3 = feat1.view(len(feat1), -1), feat2.view(len(feat2), -1), feat3.view(len(feat3), -1)
+            assert (len(feat1)+len(feat2)+len(feat3)==len(feature))
+            mmd1, mmd2, mmd3 = mmd(feat1,feat1),mmd(feat1,feat3),mmd(feat2,feat3),
+            discrepency_loss = mmd1+mmd2+mmd3
+            
+        if self.config['experiment']['discrepency_metric'] == "JSD":
+            idx1, idx2, idx3 = date==0, date==1, date==2  
+            feat1, feat2, feat3 = feature[idx1], feature[idx2], feature[idx3]
+            feat1, feat2, feat3 = feat1.view(len(feat1), -1), feat2.view(len(feat2), -1), feat3.view(len(feat3), -1)
+            assert (len(feat1)+len(feat2)+len(feat3)==len(feature))
+            JSD1, JSD2, JSD3 = self.JSD(feat1,feat1),self.JSD(feat1,feat3),self.JSD(feat2,feat3),
+            discrepency_loss = JSD1+JSD2+JSD3
+            
+        loss +=  self.config['experiment']['discrepency_coeff']*discrepency_loss
+        self.log("train/discrepency_loss", discrepency_loss, on_step=not self.train_log_on_epoch,
+                     on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch )
+
+
+        self.log("train/loss", loss, on_step=not self.train_log_on_epoch,
+                     on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch )
+
         return loss
+
+    def setup_adv_coeffs(self):
+        self.con_rgl_coeff = self.calc_coeff(self.global_step, kick_in_iter = self.config["experiment"]["con_rgl_kick_in_iter"])
+        self.con_loss_coeff = self.calc_coeff(self.global_step, kick_in_iter = self.config["experiment"]["con_loss_kick_in_iter"])
+        self.general_rgl_coeff = self.calc_coeff(self.global_step, kick_in_iter = self.config["experiment"]["general_rgl_kick_in_iter"])
+        self.general_loss_coeff = self.calc_coeff(self.global_step, kick_in_iter = self.config["experiment"]["general_loss_kick_in_iter"])
      
     def validation_step(self, batch, batch_idx):
-        ?
-        
-        if self.config['experiment']['adv_coeff']:
-            coeff = self.calc_coeff(self.global_step)
-            feat = feature.view(len(feature), -1)
-            prior_feat = torch.tensor(np.random.laplace(loc=0,scale=0.1,size=feat.shape)).float()
-            prior_feat = prior_feat.to(feat)
-            feature_together = torch.cat([feat, prior_feat], dim=0)
-            domain_prediction = self.discriminator(feature_together, coeff)
-            adv_loss = self.adv_criterion(domain_prediction,coeff)
-            loss += self.config['experiment']['adv_coeff']*adv_loss
-            self.log("val/domain_prediction_feat", torch.mean(domain_prediction[0:feat.shape[0]]) , sync_dist=self.train_log_on_epoch)
-            self.log("val/domain_prediction_prior", torch.mean(domain_prediction[feat.shape[0]:]) , sync_dist=self.train_log_on_epoch)
-            self.log("val/adv_loss", adv_loss, sync_dist=self.train_log_on_epoch)
+        x, y, date = self.unpack_batch(batch, need_date=True)
+        logits, feature = self(x, feat=True)
+        loss = self.criterion(logits, y)
+        preds = torch.argmax(logits, dim=1)
+        self.val_accuracy(preds, y)
+        self.log("val/cls_loss", loss,  prog_bar=False, on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch)
+        self.log("val/acc", self.val_accuracy, prog_bar=True, on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch)
 
-class ConDomainClassifier(nn.Module):
-    def __init__(self, in_feat, out_class, hidden ):
-        super(ConDomainClassifier, self).__init__()
-        
-        self.classfier = MLP(in_feat, out_class, hidden)
-        self.loss = torch.nn.CrossEntropyLoss()
-        self.num_domain_labels = 3
+        # conditional domain classifier
+        if self.config['experiment']['con_domain_coeff']: 
+            con_domain_loss = 0           
+            for class_idx in range(self.num_classes):
+                idx = y==class_idx
+                if torch.any(idx):
+                    class_feat, class_y, class_date = feature[idx], y[idx], date[idx]
+                    con_domain_loss += getattr(self, f'conditional_classifier_{class_idx}')(class_feat, class_y, class_date,
+                                                hook_coeff=self.con_rgl_coeff, loss_coeff=self.con_loss_coeff) 
+            loss +=  self.config['experiment']['con_domain_coeff'] * con_domain_loss
+            self.log("val/con_domain_loss", con_domain_loss, on_step=not self.train_log_on_epoch,
+                        on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch )
 
-    def forward(self, feature,y,date,coeff=1):
-        loss = [0 for i in range(self.num_domain_labels)]
-        for i in range(self.num_domain_labels):
-            idx = date==i
-            loss+=self.loss(feature[idx],y[idx])
+        if self.config['experiment']['weighted_domain_coeff']:   
+            # weighted domain classifier
+            weighted_domain_loss = self.general_domain_classifier(feature, y, date, hook_coeff=self.general_rgl_coeff, loss_coeff=self.general_loss_coeff) 
+            loss += self.config['experiment']['weighted_domain_coeff'] * weighted_domain_loss
+            self.log("val/weighted_domain_loss", weighted_domain_loss, on_step=not self.train_log_on_epoch,
+                     on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch )
+
+
+        if self.config['experiment']['discrepency_metric'] == "MMD":
+            idx1, idx2, idx3 = date==0, date==1, date==2            
+            feat1, feat2, feat3 = feature[idx1], feature[idx2], feature[idx3]
+            feat1, feat2, feat3 = feat1.view(len(feat1), -1), feat2.view(len(feat2), -1), feat3.view(len(feat3), -1)
+            assert (len(feat1)+len(feat2)+len(feat3)==len(feature))
+            mmd1, mmd2, mmd3 = mmd(feat1,feat1),mmd(feat1,feat3),mmd(feat2,feat3),
+            discrepency_loss = mmd1+mmd2+mmd3
+            
+        if self.config['experiment']['discrepency_metric'] == "JSD":
+            idx1, idx2, idx3 = date==0, date==1, date==2  
+            feat1, feat2, feat3 = feature[idx1], feature[idx2], feature[idx3]
+            feat1, feat2, feat3 = feat1.view(len(feat1), -1), feat2.view(len(feat2), -1), feat3.view(len(feat3), -1)
+            assert (len(feat1)+len(feat2)+len(feat3)==len(feature))
+            JSD1, JSD2, JSD3 = self.JSD(feat1,feat1),self.JSD(feat1,feat3),self.JSD(feat2,feat3),
+            discrepency_loss = JSD1+JSD2+JSD3
+            
+        loss +=  self.config['experiment']['discrepency_coeff']*discrepency_loss
+        self.log("val/discrepency_loss", discrepency_loss, on_step=not self.train_log_on_epoch,
+                     on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch )
+        self.log("val/loss", loss, on_step=not self.train_log_on_epoch,
+                     on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch )
+
+
+    # def train(self, mode: bool = True):
+    #     for i in self.condition_domain_classifiers:
+    #         i.train(mode)
+    #     return super().train(mode)
     
-        return loss
-    
+    # def eval(self) :
+    #     for i in self.condition_domain_classifiers:
+    #         i.eval()
+    #     return super().eval()

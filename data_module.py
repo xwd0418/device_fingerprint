@@ -9,7 +9,7 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
         self.config = config
         self.loader_num_worker = os.cpu_count()
         self.parepare_dataset()
-        self.batch_size = config['dataset']['batch_size']//3
+        self.batch_size = int(config['dataset']['batch_size']) // 3
         # self.setup()
 
         
@@ -21,12 +21,14 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
         data = np.load('/root/dataset/all_receiver_data.npy', allow_pickle=True)
         print("pickle file loaded")
         self.domained_data = [],[],[],[]
+        self.label_distribution = torch.zeros((len(self.domained_data),len(data))) 
         for label in range(len(data)):
             # one_hot_encoded = F.one_hot(torch.tensor([label]), num_classes=len(data))
             for i in data[label]:
                 for date, j in enumerate(i):
                     for k in j[1]: # remove this [0:10] later!!!
                         self.domained_data[date].append((k.T.astype("float32"),label, date)) 
+                        self.label_distribution[date,label]+=1
                 if self.config['dataset'].get('single_receiver') :
                     break       
         print("finished preparing dataloader")
@@ -48,9 +50,6 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
     #         print(f"finished domain_{i}")               
         
     def train_dataloader(self):
-        for d in self.df_data_train:
-            random.shuffle(d.indices)
-        print("traing loader is shuffled")
         return DataLoader(
             ConcatDataset(self.df_data_train),
             batch_size=self.batch_size,

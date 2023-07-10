@@ -31,6 +31,12 @@ class Baseline_Resnet(PL.LightningModule):
         x = self.encoder(x, feat=feat)
         return x
 
+    def on_train_epoch_start(self) -> None:
+        super().on_train_epoch_start()
+        for d in self.trainer.datamodule.df_data_train:
+            random.shuffle(d.indices)
+        print("traing loader is shuffled")
+    
     def training_step(self, batch, batch_idx):
         x, y = self.unpack_batch(batch)
         logits = self(x)

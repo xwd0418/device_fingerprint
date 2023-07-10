@@ -1,9 +1,11 @@
 from models.PL_resnet import * 
 from models.PL_MMD_AAE import *
+from models.PL_ConDG import *
 import json, shutil
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.callbacks import LearningRateMonitor, StochasticWeightAveraging
 from pytorch_lightning.loggers import TensorBoardLogger
+# from pytorch_lightning.strategies import DDPSpawnStrategy
 # from pytorch_lightning.tuner import Tuner
 import optuna
 from optuna.integration import PyTorchLightningPruningCallback
@@ -49,20 +51,44 @@ def objective(trial: optuna.trial.Trial) -> float:
                         elif len(v)>3: raise Exception("too many arguments for optuna")
                         sub_cfg[k] = trial.suggest_float(sub_name+"/"+k, v[0], v[1], log=log, step=step)
     
+    # if config['model']['name'] == "MMD_AAE":
+    #     n_layers = config['model']['adv_layer_nums']
+    #     config['model']['hidden_units_size'] = [
+    #         trial.suggest_categorical(f"adv_units_l{i+1}", config['model']['adv_hidden_size']['grid_guess'],
+    #                         ) for i in range(n_layers)
+    #     ]  
+    #     for i in range(len(config['model']['hidden_units_size'])):
+    #         config['model']['hidden_units_size'][i] = int(config['model']['hidden_units_size'][i])
     if config['model']['name'] == "MMD_AAE":
         n_layers = config['model']['adv_layer_nums']
         config['model']['hidden_units_size'] = [
             trial.suggest_int(f"adv_units_l{i+1}", config['model']['adv_hidden_size_min_guess'],
                             config['model']['adv_hidden_size_max_guess']  , log=True) for i in range(n_layers)
         ]  
-
+       
+    if config['model']['name'] == "ConDG":
+        general_n_layers = config['model']['general_layer_nums']
+        config['model']['general_hidden_units_size'] = [
+            trial.suggest_int(f"general_layers_units_l{i+1}", config['model']['hidden_size_min_guess'],
+                            config['model']['hidden_size_max_guess']  , log=True) for i in range(general_n_layers)
+        ]  
+        
+        con_n_layers = config['model']['con_layer_nums']
+        config['model']['con_hidden_units_size'] = [
+            trial.suggest_int(f"con_layers_units_l{i+1}", config['model']['hidden_size_min_guess'],
+                            config['model']['hidden_size_max_guess']  , log=True) for i in range(con_n_layers)
+        ]  
+       
+        
+    datamodule = DeviceFingerpringDataModule(config = config)
     # Init our model
     if config['model']['name'] == 'resnet18':
         model = Baseline_Resnet(config)
     if config['model']['name'] == 'MMD_AAE':
-        model = MMD_AAE(config)    
+        model = MMD_AAE(config)  
+    if config['model']['name'] == 'ConDG':
+        model = ConDG(config, datamodule)  
         
-    datamodule = DeviceFingerpringDataModule(config = config)
     # model.giant_batch_size = len(datamodule.df_data_train)//config['dataset']['batch_size'] < 50
     
         
@@ -78,16 +104,24 @@ def objective(trial: optuna.trial.Trial) -> float:
 
     # Initialize a trainer
     max_epoch = 3  if len(sys.argv) > 2 else 1000
-    strategy = 'ddp_spawn' if torch.cuda.device_count() >= 2 else "auto"
+    # strategy = 'ddp_spawn_find_unused_parameters_true' if torch.cuda.device_count() >= 2 else "auto"
+    if torch.cuda.device_count() < 2:
+        strategy = 'auto'  
+    elif config['model']['name'] == 'ConDG':
+        strategy = 'ddp_spawn_find_unused_parameters_true'
+    else:    
+        strategy = 'ddp_spawn'
+    print("using strategy: ", strategy)
     trainer = PL.Trainer(
         accelerator="gpu",
+        # devices=1,
         devices=torch.cuda.device_count(),
         strategy = strategy,
         max_epochs = max_epoch,
-        # logger=CSVLogger(save_dir=log_dir),
-        logger = TensorBoardLogger(save_dir=log_dir, name=name, version=version),
+        logger=CSVLogger(save_dir=log_dir, name=name, version=version+f"_trail{trial._trial_id}"),
+        # logger = TensorBoardLogger(save_dir=log_dir, name=name, version=version+f"_trail{trial._trial_id}"),
         callbacks=[checkpoint_callback,early_stop_callback, lr_monitor_callback, prune_callback],
-        reload_dataloaders_every_n_epochs=1,
+        # reload_dataloaders_every_n_epochs=1,
         # log_every_n_steps=40
     )
     # tuner = Tuner(trainer)
@@ -97,14 +131,14 @@ def objective(trial: optuna.trial.Trial) -> float:
     trainer.logger.log_hyperparams(hyperparameters)
     # Train the model ⚡
     trainer.fit(model, datamodule=datamodule)
+    print("trainer.callback_metrics ",trainer.callback_metrics)
     if config['test']:
         trainer.test(model,ckpt_path='best', datamodule=datamodule)
         
     prune_callback.check_pruned()
-
-    if config.get('optimize_test_acc'):
-        return trainer.callback_metrics["test/acc"].item()
-    return trainer.callback_metrics["val/acc"].item()
+    if config.get('optimize_test_acc') == False:
+        return trainer.callback_metrics["val/acc"].item()
+    return trainer.callback_metrics["test/acc"].item()
 
                            
 if __name__ == "__main__":
@@ -138,7 +172,7 @@ if __name__ == "__main__":
         pruner=pruner,
         load_if_exists=True, 
     )
-    study.optimize(objective, n_trials=100)
+    study.optimize(objective, n_trials=1000)
     
 
     print("Number of finished trials: {}".format(len(study.trials)))

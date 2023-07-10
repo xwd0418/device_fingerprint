@@ -53,7 +53,7 @@ class MMD_AAE(Baseline_Resnet):
             prior_feat = prior_feat.to(feat)
             feature_together = torch.cat([feat, prior_feat], dim=0)
             domain_prediction = self.discriminator(feature_together, rgl_coeff)
-            adv_loss = self.adv_criterion(domain_prediction,loss_coeff)
+            adv_loss = self.adv_criterion(domain_prediction, loss_coeff)
             loss += self.config['experiment']['adv_coeff']*adv_loss
             self.log("train/domain_prediction_feat", torch.mean(domain_prediction[0:feat.shape[0]]),
                      on_step=not self.train_log_on_epoch, on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch)
@@ -106,5 +106,7 @@ class MMD_AAE(Baseline_Resnet):
             self.log("val/domain_prediction_feat", torch.mean(domain_prediction[0:feat.shape[0]]) , sync_dist=True)
             self.log("val/domain_prediction_prior", torch.mean(domain_prediction[feat.shape[0]:]) , sync_dist=True)
             self.log("val/adv_loss", adv_loss, sync_dist=True)
+            
+        self.log('val/loss', loss, sync_dist=True )
 
     
