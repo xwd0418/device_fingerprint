@@ -17,3 +17,5 @@ lightning_logs/
 simple_main.py
 .*
 !.gitignore
+*.csv
+trial_id.py

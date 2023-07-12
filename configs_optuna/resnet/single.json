@@ -1,0 +1,19 @@
+{
+    "dataset": {
+        "batch_size": ["optuna", 16, 4096, "log"],
+        "single_receiver":true
+    },
+    "experiment": {
+        "num_epochs": 500,
+        "learning_rate": ["optuna" , 1e-4, 0.01],
+        "optimizer":"SGD",
+        "momentum": ["optuna", 0.75, 0.99, "log"],
+        "dampening": ["optuna", 0.0005, 0.5, "log"],
+        "weight_decay": ["optuna", 0.0005, 0.5, "log"],
+        "nesterov":["optuna", "True","False"],
+        "ckpt_path":null
+    },
+    "model": {
+        "name": "resnet18"
+    }
+}

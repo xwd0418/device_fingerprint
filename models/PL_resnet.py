@@ -31,14 +31,18 @@ class Baseline_Resnet(PL.LightningModule):
         x = self.encoder(x, feat=feat)
         return x
 
-    def on_train_epoch_start(self) -> None:
-        super().on_train_epoch_start()
-        for d in self.trainer.datamodule.df_data_train:
-            random.shuffle(d.indices)
-        print("traing loader is shuffled")
+    # def on_train_epoch_start(self) -> None:
+    #     super().on_train_epoch_start()
+    #     # random.shuffle(self.trainer.datamodule.df_data_train[0])
+    #     for d in self.trainer.datamodule.df_data_train:
+    #         random.shuffle(d)
+    #     print("traing loader is shuffled")
     
     def training_step(self, batch, batch_idx):
         x, y = self.unpack_batch(batch)
+        # if batch_idx == 1:
+        #     print("date1: ", x[0,0,0])    
+        #     print("date3: ", x[-1,0,0])    
         logits = self(x)
         loss = self.criterion(logits, y)
         preds = torch.argmax(logits, dim=1)
@@ -54,7 +58,7 @@ class Baseline_Resnet(PL.LightningModule):
     #     return {'loss': training_step_outputs['loss'].sum()}
     
     def validation_step(self, batch, batch_idx):
-        x, y = self.unpack_batch(batch)
+        x, y = self.unpack_batch(batch, single_domain_loader=True)
         logits = self(x)
         loss = self.criterion(logits, y)
         preds = torch.argmax(logits, dim=1)
@@ -64,7 +68,7 @@ class Baseline_Resnet(PL.LightningModule):
 
         
     def test_step(self, batch, batch_idx):
-        x, y = self.unpack_batch(batch, target_domain_loader=True)
+        x, y = self.unpack_batch(batch, single_domain_loader=True)
         logits = self(x)
         loss = self.criterion(logits, y)
         preds = torch.argmax(logits, dim=1)
@@ -77,8 +81,8 @@ class Baseline_Resnet(PL.LightningModule):
         # return 0
       
             
-    def unpack_batch(self, batch, need_date=False, target_domain_loader = False):
-        if target_domain_loader:
+    def unpack_batch(self, batch, need_date=False, single_domain_loader = False):
+        if single_domain_loader:
             x,y,date = batch
         else:
             x,y,date = zip(*batch)   
@@ -93,12 +97,16 @@ class Baseline_Resnet(PL.LightningModule):
      
         # print(self.parameters())
         if self.config['experiment'].get('optimizer') == "SGD":
-            optimizer = torch.optim.SGD(self.parameters(),lr =self.config['experiment']['learning_rate'], momentum=0.9, weight_decay=0.005, nesterov=True)
-        else:
+            optimizer = torch.optim.SGD(self.parameters(),
+                                        lr =self.config['experiment']['learning_rate'],
+                                        momentum=self.config['experiment']['momentum'],
+                                        weight_decay=self.config['experiment']['weight_decay'], 
+                                        nesterov=self.config['experiment']['nesterov']=="True")
+        elif self.config['experiment'].get('optimizer') == "Adam":
             optimizer = torch.optim.Adam(self.parameters(),
                                     lr= self.config['experiment']['learning_rate'],
                                     weight_decay=0.0005)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
         return {'optimizer': optimizer,"lr_scheduler":scheduler, "monitor":"val/loss"}
         
     def get_model(self):

@@ -1,6 +1,6 @@
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader, random_split
-import random, numpy as np, torch, os
+import random, numpy as np, torch, os, pickle
 
 
 class DeviceFingerpringDataModule(pl.LightningDataModule):
@@ -15,10 +15,10 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
         
     def parepare_dataset(self) :
         print("preparing dataloader")
-        # pickleFile = open("/root/dataset/ManyTx.pkl","rb")
-        # all_info = pickle.load(pickleFile)
-        # data = all_info['data']
-        data = np.load('/root/dataset/all_receiver_data.npy', allow_pickle=True)
+        pickleFile = open("/root/dataset/ManyTx.pkl","rb")
+        all_info = pickle.load(pickleFile)
+        data = all_info['data']
+        # data = np.load('/root/dataset/all_receiver_data.npy', allow_pickle=True)
         print("pickle file loaded")
         self.domained_data = [],[],[],[]
         self.label_distribution = torch.zeros((len(self.domained_data),len(data))) 
@@ -54,19 +54,18 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
             ConcatDataset(self.df_data_train),
             batch_size=self.batch_size,
             pin_memory=True,
+            shuffle=True,
             # num_workers=self.loader_num_worker,
             # persistent_workers=True
         )
 
 
     def val_dataloader(self):
-        return DataLoader(
-            ConcatDataset(self.df_data_val),
-            batch_size=512//3,
-            pin_memory=True,
-            # num_workers=self.loader_num_worker,
-            # persistent_workers=True
-        )
+        return DataLoader(self.df_data_val, 
+                          batch_size=4096, 
+                        #   num_workers=self.loader_num_worker,
+                        #   persistent_workers=True
+                          )
 
     def test_dataloader(self):
         return DataLoader(self.df_data_test, 
@@ -75,19 +74,33 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
                         #   persistent_workers=True
                           )
     
-    def setup(self, stage = None):
-        if stage == "fit":
+    # def setup(self, stage = None):
+    #     if stage == "fit":
 
+    #         print("spllitting train, val, test, should happen only once")  
+    #         self.df_data_train, self.df_data_val = [],[]
+    #         for i in range(3):
+    #             val_num = len(self.domained_data[i])//10
+    #             t,v = random_split(self.domained_data[i], [len(self.domained_data[i])-val_num,val_num])
+    #             self.df_data_train.append(t)
+    #             self.df_data_val.append(v)
+    #     if stage == "test":    
+    #         self.df_data_test = self.domained_data[3]
+     
+    def setup(self, stage = None):
+        val_size = len(self.domained_data[3])//2
+        if stage == "fit":
             print("spllitting train, val, test, should happen only once")  
-            self.df_data_train, self.df_data_val = [],[]
-            for i in range(3):
-                val_num = len(self.domained_data[i])//10
-                t,v = random_split(self.domained_data[i], [len(self.domained_data[i])-val_num,val_num])
-                self.df_data_train.append(t)
-                self.df_data_val.append(v)
+            self.df_data_train = [self.domained_data[i] for i in range(3)]
+            self.df_data_val = self.domained_data[3][:val_size]
+            # for i in range(3):
+            #     t,v = random_split(self.domained_data[i], [len(self.domained_data[i])-val_num,val_num])
+            #     self.df_data_train.append(t)
+            #     self.df_data_val.append(v)
+            
         if stage == "test":    
-            self.df_data_test = self.domained_data[3]
-        
+            self.df_data_test = self.domained_data[3][val_size:]
+       
 class ConcatDataset(torch.utils.data.Dataset):
     def __init__(self, datasets):
         self.datasets = datasets

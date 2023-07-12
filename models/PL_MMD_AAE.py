@@ -65,48 +65,4 @@ class MMD_AAE(Baseline_Resnet):
             
         return loss
      
-    def validation_step(self, batch, batch_idx):
-        x, y, date = self.unpack_batch(batch, need_date=True)
-        logits, feature = self(x, feat=True)
-        loss = self.criterion(logits, y)
-        preds = torch.argmax(logits, dim=1)
-        self.val_accuracy(preds, y)
-        self.log("val/cls_loss", loss,  prog_bar=False, sync_dist=True)
-        self.log("val/acc", self.val_accuracy, prog_bar=True, sync_dist=True)   
-
-        if self.config['experiment']['recontruct_coeff']:
-            
-            decoded_original_signal = self.decoder(feature)
-            reconstruct_loss = self.reconstruct_criterion(decoded_original_signal,x)
-            loss += self.config['experiment']['recontruct_coeff']*reconstruct_loss 
-            self.log("val/recons_loss", reconstruct_loss, sync_dist=self.train_log_on_epoch) 
-        
-        if self.config['experiment']['MMD_coeff']:
-            idx1, idx2, idx3 = date==0, date==1, date==2
-            
-            feat1, feat2, feat3 = feature[idx1], feature[idx2], feature[idx3]
-            feat1, feat2, feat3 = feat1.view(len(feat1), -1), feat2.view(len(feat2), -1), feat3.view(len(feat3), -1)
-            assert (len(feat1)+len(feat2)+len(feat3)==len(feature))
-            mmd1 = mmd(feat1,feat2)
-            mmd2 = mmd(feat1,feat3)
-            mmd3 = mmd(feat2,feat3)
-            loss +=  self.config['experiment']['MMD_coeff']*(mmd1+mmd2+mmd3)
-            self.log("val/mmd", mmd1+mmd2+mmd3, sync_dist=True)
-        
-        if self.config['experiment']['adv_coeff']:
-            rgl_coeff = self.calc_coeff(self.global_step, kick_in_iter = self.config["experiment"]["rgl_kick_in_iter"])
-            loss_coeff = self.calc_coeff(self.global_step, kick_in_iter = self.config["experiment"]["loss_kick_in_iter"])
-            feat = feature.view(len(feature), -1)
-            prior_feat = torch.tensor(np.random.laplace(loc=0,scale=0.1,size=feat.shape)).float()
-            prior_feat = prior_feat.to(feat)
-            feature_together = torch.cat([feat, prior_feat], dim=0)
-            domain_prediction = self.discriminator(feature_together, rgl_coeff)
-            adv_loss = self.adv_criterion(domain_prediction,loss_coeff)
-            loss += self.config['experiment']['adv_coeff']*adv_loss
-            self.log("val/domain_prediction_feat", torch.mean(domain_prediction[0:feat.shape[0]]) , sync_dist=True)
-            self.log("val/domain_prediction_prior", torch.mean(domain_prediction[feat.shape[0]:]) , sync_dist=True)
-            self.log("val/adv_loss", adv_loss, sync_dist=True)
-            
-        self.log('val/loss', loss, sync_dist=True )
-
     
