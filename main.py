@@ -93,7 +93,7 @@ def objective(trial: optuna.trial.Trial) -> float:
     
         
     '''callbacks'''
-    checkpoint_callback = PL.callbacks.ModelCheckpoint(monitor="val/loss", mode="min", save_last=True)
+    checkpoint_callback = PL.callbacks.ModelCheckpoint(monitor="val/loss", mode="min", save_last=False, save_weights_only=True)
     early_stop_callback = EarlyStopping(monitor="val/loss", mode="min", patience=20)
     lr_monitor_callback = LearningRateMonitor(logging_interval='step')
     prune_callback = PyTorchLightningPruningCallback(trial, monitor="val/acc")
@@ -103,7 +103,7 @@ def objective(trial: optuna.trial.Trial) -> float:
 
 
     # Initialize a trainer
-    max_epoch = 3  if len(sys.argv) > 2 else 1000
+    max_epoch = 1  if len(sys.argv) > 2 else 1000
     # strategy = 'ddp_spawn_find_unused_parameters_true' if torch.cuda.device_count() >= 2 else "auto"
     if torch.cuda.device_count() < 2:
         strategy = 'auto'  
@@ -112,15 +112,17 @@ def objective(trial: optuna.trial.Trial) -> float:
     else:    
         strategy = 'ddp_spawn'
     print("using strategy: ", strategy)
+    version = version+f"_trail/{trial._trial_id}"
+    trial.set_user_attr("logging_path",os.path.join(log_dir,name,version))
     trainer = PL.Trainer(
         accelerator="gpu",
         # devices=1,
         devices=torch.cuda.device_count(),
         strategy = strategy,
         max_epochs = max_epoch,
-        logger=CSVLogger(save_dir=log_dir, name=name, version=version+f"_trail{trial._trial_id}"),
-        # logger = TensorBoardLogger(save_dir=log_dir, name=name, version=version+f"_trail{trial._trial_id}"),
-        callbacks=[checkpoint_callback,early_stop_callback, lr_monitor_callback, prune_callback],
+        logger=CSVLogger          (save_dir=log_dir, name=name, version=version),
+        # logger = TensorBoardLogger(save_dir=log_dir, name=name, version=version+f"_trail/{trial._trial_id}"),
+        callbacks=[early_stop_callback, lr_monitor_callback, prune_callback],
         # reload_dataloaders_every_n_epochs=1,
         # log_every_n_steps=40
     )
@@ -131,8 +133,9 @@ def objective(trial: optuna.trial.Trial) -> float:
     trainer.logger.log_hyperparams(hyperparameters)
     # Train the model ⚡
     trainer.fit(model, datamodule=datamodule)
-    print("trainer.callback_metrics ",trainer.callback_metrics)
+    # print("trainer.callback_metrics ",trainer.callback_metrics)
     if config['test']:
+        trainer.logger = False
         trainer.test(model,ckpt_path='best', datamodule=datamodule)
         
     prune_callback.check_pruned()
@@ -140,7 +143,17 @@ def objective(trial: optuna.trial.Trial) -> float:
         return trainer.callback_metrics["val/acc"].item()
     return trainer.callback_metrics["test/acc"].item()
 
-                           
+def delete_bad_ckpt_callback(study, trial):
+    print("current trial.value: ", trial.value)
+    print("study.best_value: ",study.best_value)
+    path = trial.user_attrs["logging_path"]
+    print("trial logging path: ", path)
+    if trial.value<0.95*study.best_value:
+        os.system(f'rm -r {path}')
+    # if study.best_trial.number != trial.number:
+    #     study.set_user_attr(key="best_booster", value=trial.user_attrs["best_booster"])    
+        
+                               
 if __name__ == "__main__":
     os.system('nvidia-smi -L')
     print("cpu count: ", os.cpu_count())
@@ -162,17 +175,19 @@ if __name__ == "__main__":
             
     pruner = optuna.pruners.NopPruner() if config.get('no_prune') else optuna.pruners.MedianPruner()
 
-    db_name = "_".join(exp_name.split('/')) if len(sys.argv) <= 2 else "dev"
-    storage = f"sqlite:///Database/{db_name}.db"
+    # db_name = "_".join(exp_name.split('/')) if len(sys.argv) <= 2 else "dev"
+    # storage = f"sqlite:///Database/{db_name}.db"
+    storage = "mysql+mysqlconnector://root:test1234@10.244.103.144:3306/ddp_database"
     print("creating a new study")
+    study_name = "dev" if  len(sys.argv) > 2 else exp_name
     study = optuna.create_study(
-        study_name=exp_name,
+        study_name=study_name,
         storage=storage,
         direction="maximize",
         pruner=pruner,
         load_if_exists=True, 
     )
-    study.optimize(objective, n_trials=1000)
+    study.optimize(objective, n_trials=1000, callbacks=[delete_bad_ckpt_callback])
     
 
     print("Number of finished trials: {}".format(len(study.trials)))
