@@ -101,6 +101,7 @@ class Discriminator(nn.Module):
 
   def forward(self, x, hook_coeff):
     # x = x * 1.0
+    # print("self.training,\n\n", self.training)
     if self.training:
         x.register_hook(grl_hook(hook_coeff))
     y = self.mlp(x)

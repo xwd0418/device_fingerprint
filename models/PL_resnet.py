@@ -121,5 +121,5 @@ class Baseline_Resnet(PL.LightningModule):
             coeff_param = kick_in_iter/10
         else : 
             coeff_param = 20.0
-        return np.float(coeff_param* (high - low) / (1.0 + np.exp(-alpha*iter_num / max_iter)) - (high - low) + low)
+        return float(coeff_param* (high - low) / (1.0 + np.exp(-alpha*iter_num / max_iter)) - (high - low) + low)
 

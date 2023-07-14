@@ -4,8 +4,9 @@ import random, numpy as np, torch, os, pickle
 
 
 class DeviceFingerpringDataModule(pl.LightningDataModule):
-    def __init__(self, config):
+    def __init__(self, config, data_from_pickle=None):
         super().__init__()
+        self.data_from_pickle = data_from_pickle
         self.config = config
         self.loader_num_worker = os.cpu_count()
         self.parepare_dataset()
@@ -18,6 +19,7 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
         pickleFile = open("/root/dataset/ManyTx.pkl","rb")
         all_info = pickle.load(pickleFile)
         data = all_info['data']
+        # data=self.data_from_pickle
         # data = np.load('/root/dataset/all_receiver_data.npy', allow_pickle=True)
         print("pickle file loaded")
         self.domained_data = [],[],[],[]

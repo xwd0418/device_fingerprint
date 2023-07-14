@@ -1,6 +1,7 @@
 from models.PL_resnet import * 
 from models.PL_MMD_AAE import *
-from models.PL_ConDG import *
+# from models.PL_ConDG import *
+import torch._inductor.config as torch_config
 import json, shutil
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.callbacks import LearningRateMonitor, StochasticWeightAveraging
@@ -88,18 +89,20 @@ def objective(trial: optuna.trial.Trial) -> float:
     trial.set_user_attr("logging_path",os.path.join(log_dir,name,version))
     trainer = PL.Trainer(
         accelerator="gpu",
-        # devices=1,
-        devices=torch.cuda.device_count(),
-        strategy = strategy,
+        devices=1,
+        # devices=torch.cuda.device_count(),
+        # strategy = strategy,
         max_epochs = max_epoch,
         logger=CSVLogger          (save_dir=log_dir, name=name, version=version),
         # logger = TensorBoardLogger(save_dir=log_dir, name=name, version=version),
-        callbacks=[early_stop_callback, lr_monitor_callback, prune_callback],
+        callbacks=[checkpoint_callback, early_stop_callback, lr_monitor_callback, prune_callback],
         # reload_dataloaders_every_n_epochs=1,
         # log_every_n_steps=40
+        # profiler="simple",
     )
     # tuner = Tuner(trainer)
     # tuner.scale_batch_size(model, mode="power")
+    # torch_config.compile_threads = 1
     # model = torch.compile(model, mode="reduce-overhead")
     hyperparameters = config
     trainer.logger.log_hyperparams(hyperparameters)
@@ -152,7 +155,8 @@ def delete_bad_ckpt_callback(study, trial):
 if __name__ == "__main__":
     os.system('nvidia-smi -L')
     print("cpu count: ", os.cpu_count())
-    # torch.set_float32_matmul_precision("medium")
+    torch.set_float32_matmul_precision("medium")
+    # torch._dynamo.config.suppress_errors = True
     
     seed = 3407
     np.random.seed(seed)

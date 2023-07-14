@@ -1,5 +1,5 @@
 /.vscode
-/configs
+/configs*
 /dataset
 /exps*
 .vscode*/
@@ -19,3 +19,6 @@ simple_main.py
 !.gitignore
 *.csv
 trial_id.py
+pytorch2/
+data/
+

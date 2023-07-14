@@ -1,6 +1,6 @@
 from models.PL_resnet import *
 from models.model_factory import *
-from models.loss_module.MMD import mmd
+from models.loss_module.MMD import MMD_loss
 from models.loss_module.domain_adv_loss import DALoss
 
 
@@ -14,6 +14,7 @@ class MMD_AAE(Baseline_Resnet):
                                            )
         self.adv_criterion = DALoss()
         self.reconstruct_criterion= nn.MSELoss()
+        self.mmd_loss = MMD_loss()
         
     def training_step(self, batch, batch_idx):
         x, y, date = self.unpack_batch(batch, need_date=True)
@@ -40,7 +41,7 @@ class MMD_AAE(Baseline_Resnet):
             feat1, feat2, feat3 = feature[idx1], feature[idx2], feature[idx3]
             feat1, feat2, feat3 = feat1.view(len(feat1), -1), feat2.view(len(feat2), -1), feat3.view(len(feat3), -1)
             assert (len(feat1)+len(feat2)+len(feat3)==len(feature))
-            mmd1, mmd2, mmd3 = mmd(feat1,feat1),mmd(feat1,feat3),mmd(feat2,feat3),
+            mmd1, mmd2, mmd3 = self.mmd_loss(feat1,feat1),self.mmd_loss(feat1,feat3),self.mmd_loss(feat2,feat3),
             loss +=  self.config['experiment']['MMD_coeff']*(mmd1+mmd2+mmd3)
             self.log("train/mmd", mmd1+mmd2+mmd3, on_step=not self.train_log_on_epoch,
                      on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch )

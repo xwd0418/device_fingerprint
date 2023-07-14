@@ -1,1 +1,1 @@
-optuna-dashboard mysql+mysqlconnector://root:test1234@10.244.103.144:3306/ddp_database 
+optuna-dashboard mysql+mysqlconnector://root:test1234@10.244.103.144:3306/ddp_database $1
