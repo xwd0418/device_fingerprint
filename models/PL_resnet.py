@@ -19,7 +19,7 @@ class Baseline_Resnet(PL.LightningModule):
         self.config = config
         print(config)
         self.num_classes = 150
-        self.encoder = self.get_model()
+        self.get_model()
         self.criterion = torch.nn.CrossEntropyLoss()
         self.train_accuracy = Accuracy(task="multiclass", num_classes=self.num_classes)
         self.val_accuracy = Accuracy(task="multiclass", num_classes=self.num_classes)
@@ -113,13 +113,17 @@ class Baseline_Resnet(PL.LightningModule):
         model = resnet18(pretrained=False, num_classes=self.num_classes)
         in_channels = 2
         model.conv1 = nn.Conv1d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)            
-        return model                      
-    
-    def calc_coeff(self, iter_num, high=1.0, low=0.0, alpha=10.0, max_iter=1000.0, kick_in_iter=None):
+        self.encoder =  model                      
         
-        if kick_in_iter:
-            coeff_param = kick_in_iter/10
-        else : 
-            coeff_param = 20.0
-        return float(coeff_param* (high - low) / (1.0 + np.exp(-alpha*iter_num / max_iter)) - (high - low) + low)
+        if self.config['model'].get('pretrained') != False:
+            model_path = '/root/exps_autotune/resnet/single/trail283/checkpoints/epoch=21-step=7612.ckpt'
+            checkpoint = torch.load(model_path)
+            print('successfully loaded')
+            self.load_state_dict(checkpoint['state_dict'])
+            
+    
+    def calc_coeff(self, iter_num, high=1.0, low=0.0, alpha=10.0, max_iter=1000.0, kick_in_iter=0):
+        
+        iter_num = max(iter_num-kick_in_iter, 0)
+        return float(2* (high - low) / (1.0 + np.exp(-alpha*iter_num / max_iter)) - (high - low) + low)
 

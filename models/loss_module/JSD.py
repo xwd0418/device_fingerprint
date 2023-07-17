@@ -1,5 +1,6 @@
 import torch, torch.nn as nn
 class JSD(nn.Module):
+    @torch.no_grad()
     def __init__(self):
         super(JSD, self).__init__()
         self.kl = nn.KLDivLoss(reduction='batchmean', log_target=True)

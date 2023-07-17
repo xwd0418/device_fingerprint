@@ -62,13 +62,14 @@ import numpy as np
 #     return loss
 
 
-
 class MMD_loss(nn.Module):
-    def __init__(self, kernel_mul = 2.0, kernel_num = 5):
+    @torch.no_grad()
+    def __init__(self, MMD_sample_size=float('inf'), kernel_mul = 2.0, kernel_num = 5, fix_sigma=None,):
         super(MMD_loss, self).__init__()
         self.kernel_num = kernel_num
         self.kernel_mul = kernel_mul
-        self.fix_sigma = None
+        self.fix_sigma = fix_sigma
+        self.MMD_sample_size = MMD_sample_size
         return
 
     def guassian_kernel(self, source, target, kernel_mul=2.0, kernel_num=5, fix_sigma=None):
@@ -87,7 +88,7 @@ class MMD_loss(nn.Module):
         kernel_val = [torch.exp(-L2_distance / bandwidth_temp) for bandwidth_temp in bandwidth_list]
         return sum(kernel_val)
 
-    def forward(self, source, target):
+    def calc_mmd(self, source, target):
         batch_size = int(source.size()[0])
         kernels = self.guassian_kernel(source, target, kernel_mul=self.kernel_mul, kernel_num=self.kernel_num, fix_sigma=self.fix_sigma)
         XX = kernels[:batch_size, :batch_size]
@@ -96,3 +97,16 @@ class MMD_loss(nn.Module):
         YX = kernels[batch_size:, :batch_size]
         loss = torch.mean(XX + YY - XY -YX)
         return loss 
+    
+    def forward(self, source, target):
+        batch_size = source.shape[0]//2
+        if self.MMD_sample_size>=batch_size:
+            return self.calc_mmd(source,target)
+        sample_num = batch_size//self.MMD_sample_size
+        total_mmd = 0
+        reversed_target = torch.flip(target, [0])
+        for i in range(sample_num):
+            total_mmd += self.calc_mmd(source[i*self.MMD_sample_size:(i+1)*self.MMD_sample_size],
+                                   reversed_target[i*self.MMD_sample_size:(i+1)*self.MMD_sample_size])
+        return total_mmd/sample_num
+        

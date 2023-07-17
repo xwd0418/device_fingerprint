@@ -7,14 +7,17 @@ from models.loss_module.domain_adv_loss import DALoss
 class MMD_AAE(Baseline_Resnet):
     def __init__(self, config):
         super().__init__(config)
-        self.decoder =  Decoder(256, 2, self.config['model']['linear'])
+        if self.config['experiment']['recontruct_coeff']:
+            self.decoder =  Decoder(256, 2, self.config['model']['linear'])
+            self.reconstruct_criterion= nn.MSELoss()
         
-        self.discriminator = Discriminator(in_feature=512*8, 
-                                           hidden_units_size=config['model']['hidden_units_size']
-                                           )
-        self.adv_criterion = DALoss()
-        self.reconstruct_criterion= nn.MSELoss()
-        self.mmd_loss = MMD_loss()
+        if self.config['experiment']['adv_coeff']:
+            self.discriminator = Discriminator(in_feature=512*8, 
+                                            hidden_units_size=config['model']['hidden_units_size']
+                                            )
+            self.adv_criterion = DALoss()
+        if self.config['experiment']['MMD_coeff']:
+            self.mmd_loss = MMD_loss(MMD_sample_size=config['experiment']['MMD_sample_size'])
         
     def training_step(self, batch, batch_idx):
         x, y, date = self.unpack_batch(batch, need_date=True)
@@ -47,12 +50,13 @@ class MMD_AAE(Baseline_Resnet):
                      on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch )
         
         if self.config['experiment']['adv_coeff']:
-            rgl_coeff = self.calc_coeff(self.global_step, kick_in_iter = self.config["experiment"]["rgl_kick_in_iter"])
-            loss_coeff = self.calc_coeff(self.global_step, kick_in_iter = self.config["experiment"]["loss_kick_in_iter"])
+            rgl_coeff = self.calc_coeff(self.global_step, kick_in_iter = self.config["experiment"]["rgl_kick_in_position"]//self.config['dataset']["batch_size"])
+            loss_coeff = self.calc_coeff(self.global_step, kick_in_iter = self.config["experiment"]["loss_kick_in_position"]//self.config['dataset']["batch_size"])
             feat = feature.view(len(feature), -1)
             prior_feat = torch.tensor(np.random.laplace(loc=0,scale=0.1,size=feat.shape)).float()
             prior_feat = prior_feat.to(feat)
             feature_together = torch.cat([feat, prior_feat], dim=0)
+            # label : real_feat->1, prior_feat->0
             domain_prediction = self.discriminator(feature_together, rgl_coeff)
             adv_loss = self.adv_criterion(domain_prediction, loss_coeff)
             loss += self.config['experiment']['adv_coeff']*adv_loss

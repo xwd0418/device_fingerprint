@@ -16,10 +16,10 @@
         "discrepency_coeff":["optuna", 0.001, 100.0, "log"],  
         "con_domain_coeff":["optuna", 0.001, 100.0, "log"], 
         "weighted_domain_coeff":["optuna", 0.001, 100.0, "log"], 
-        "con_rgl_kick_in_iter":["optuna", 20,10000, "log"],
-        "con_loss_kick_in_iter":["optuna", 10,2000, "log"],
-        "general_rgl_kick_in_iter":["optuna", 20,10000, "log"],
-        "general_loss_kick_in_iter":["optuna", 10,2000, "log"]
+        "con_rgl_kick_in_position":["optuna", 20,10000, "log"],
+        "con_loss_kick_in_position":["optuna", 10,2000, "log"],
+        "general_rgl_kick_in_position":["optuna", 20,10000, "log"],
+        "general_loss_kick_in_position":["optuna", 10,2000, "log"]
     },
     "model": {
         "name": "ConDG",
