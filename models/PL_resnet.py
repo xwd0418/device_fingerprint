@@ -115,7 +115,7 @@ class Baseline_Resnet(PL.LightningModule):
         model.conv1 = nn.Conv1d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)            
         self.encoder =  model                      
         
-        if self.config['model'].get('pretrained') != False:
+        if self.config['use_pretrained']:
             model_path = '/root/exps_autotune/resnet/single/trail283/checkpoints/epoch=21-step=7612.ckpt'
             checkpoint = torch.load(model_path)
             print('successfully loaded')

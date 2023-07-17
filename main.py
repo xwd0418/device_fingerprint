@@ -25,11 +25,8 @@ def objective(trial: optuna.trial.Trial) -> float:
         name = "dev"  
     # os.makedirs(os.path.join(log_dir,name,version), exist_ok=True)   
     # shutil.copy2(config_file_path,os.path.join(log_dir,name+"_new_loader",version))
-    config_file_path = f'/root/configs_optuna/'+ exp_name + '.json'
-    f = open(config_file_path)        
-    config = json.load(f)
+    config = get_config(exp_name)
     
-
     sample_config(trial, config)
     
     if config['model']['name'] == "MMD_AAE":
@@ -57,10 +54,11 @@ def objective(trial: optuna.trial.Trial) -> float:
             
         if config['experiment']['discrepency_metric'] == "MMD":
             low,high = config['experiment']['MMD_sample_size']
-            config['experiment']['MMD_sample_size'] = trial.suggest_int("MMD_sample_size", low, high, log=True)
-            
-       
+            config['experiment']['MMD_sample_size'] = trial.suggest_int("MMD_sample_size", low, high, log=True)  
         
+    config['use_pretrained'] = "pretrain" in  exp_name
+    print("Using pretrained mode: ", config['use_pretrained'], "\n")
+    
     datamodule = DeviceFingerpringDataModule(config = config)
     # Init our model
     if config['model']['name'] == 'resnet18':
@@ -68,13 +66,7 @@ def objective(trial: optuna.trial.Trial) -> float:
     if config['model']['name'] == 'MMD_AAE':
         model = MMD_AAE(config)  
     if config['model']['name'] == 'ConDG':
-        model = ConDG(config, datamodule)  
-        
-    
-            
-    
-    # model.giant_batch_size = len(datamodule.df_data_train)//config['dataset']['batch_size'] < 50
-    
+        model = ConDG(config, datamodule)      
         
     '''callbacks'''
     checkpoint_callback = PL.callbacks.ModelCheckpoint(monitor="val/loss", mode="min", save_last=False, save_weights_only=False)
@@ -82,7 +74,7 @@ def objective(trial: optuna.trial.Trial) -> float:
     lr_monitor_callback = LearningRateMonitor(logging_interval='step')
     # prune_callback = PyTorchLightningPruningCallback(trial, monitor="val/acc")
     # swa_callback = StochasticWeightAveraging(swa_lrs=1e-2)
-    log_dir = f'/root/exps_autotune/' 
+    log_dir = f'/root/exps_multi_optim/' 
     os.makedirs(log_dir, exist_ok=True)
 
 
@@ -116,18 +108,20 @@ def objective(trial: optuna.trial.Trial) -> float:
         # log_every_n_steps=40
         # profiler="advanced",
     )
-    # tuner = Tuner(trainer)
-    # tuner.scale_batch_size(model, mode="power")
-    # torch_config.compile_threads = 1
-    # model = torch.compile(model, mode="reduce-overhead")
+
     hyperparameters = config
     trainer.logger.log_hyperparams(hyperparameters)
     # Train the model ⚡
     trainer.fit(model, datamodule=datamodule)
-    # print("trainer.callback_metrics ",trainer.callback_metrics)   
     # prune_callback.check_pruned()
     trainer.test(ckpt_path='best', datamodule=datamodule )  
     return trainer.callback_metrics["test/acc"].item()
+
+def get_config(exp_name):
+    config_file_path = f'/root/configs_multi_optim/'+ exp_name + '.json'
+    f = open(config_file_path)        
+    config = json.load(f)
+    return config
 
 def sample_config(trial, config):
     '''set up optuna's guessing'''    
@@ -184,13 +178,10 @@ if __name__ == "__main__":
         exp_name = sys.argv[1]
 
     print("Running Experiment: ", exp_name)
-    config_file_path = f'/root/configs_optuna/'+ exp_name + '.json'
-    f = open(config_file_path)        
-    config = json.load(f)
+    config = get_config(exp_name)
             
     # pruner = optuna.pruners.NopPruner() if config.get('no_prune') else \
     #     optuna.pruners.MedianPruner(n_warmup_steps=12,interval_steps=2)
-
    
     # storage = "mysql+mysqlconnector://root:test1234@10.244.198.163:3306/ddp_database"
     storage = "postgresql+psycopg2://testUser:testPassword@10.244.118.123:5432/testDB"
@@ -208,7 +199,7 @@ if __name__ == "__main__":
         # pruner=pruner,
         load_if_exists=True, 
     )
-    study.optimize(objective, n_trials=100, callbacks=[delete_bad_ckpt_callback])
+    study.optimize(objective, n_trials=500, callbacks=[delete_bad_ckpt_callback])
     
 
     print("Number of finished trials: {}".format(len(study.trials)))
