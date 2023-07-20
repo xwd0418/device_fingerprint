@@ -23,8 +23,6 @@ def objective(trial: optuna.trial.Trial) -> float:
     # name=name+"_new_loader"
     if override_name:
         name = "dev"  
-    # os.makedirs(os.path.join(log_dir,name,version), exist_ok=True)   
-    # shutil.copy2(config_file_path,os.path.join(log_dir,name+"_new_loader",version))
     config = get_config(exp_name)
     
     sample_config(trial, config)
@@ -70,9 +68,13 @@ def objective(trial: optuna.trial.Trial) -> float:
         
     '''callbacks'''
     checkpoint_callback = PL.callbacks.ModelCheckpoint(monitor="val/loss", mode="min", save_last=False, save_weights_only=False)
-    # early_stop_callback = EarlyStopping(monitor="val/loss", mode="min", patience=10)
-    lr_monitor_callback = LearningRateMonitor(logging_interval='step')
-    # prune_callback = PyTorchLightningPruningCallback(trial, monitor="val/acc")
+    lr_monitor_callback = LearningRateMonitor(logging_interval='epoch')
+    callbacks = [checkpoint_callback, lr_monitor_callback]
+    if "resnet" in exp_name:
+        early_stop_callback = EarlyStopping(monitor="val/loss", mode="min", patience=10)
+        prune_callback = PyTorchLightningPruningCallback(trial, monitor="val/acc")
+        callbacks.append(early_stop_callback)
+        callbacks.append(prune_callback)
     # swa_callback = StochasticWeightAveraging(swa_lrs=1e-2)
     log_dir = f'/root/exps_multi_optim/' 
     os.makedirs(log_dir, exist_ok=True)
@@ -91,19 +93,17 @@ def objective(trial: optuna.trial.Trial) -> float:
     
     version = version+f"/trail{trial.number}"
     trial.set_user_attr("logging_path",os.path.join(log_dir,name,version))
+         #    early_stop_callback, 
+                #    prune_callback
     trainer = PL.Trainer(
         accelerator="gpu",
         devices=1,
         # devices=torch.cuda.device_count(),
         # strategy = strategy,
         max_epochs = max_epoch,
-        logger=CSVLogger          (save_dir=log_dir, name=name, version=version),
+        logger=CSVLogger  (save_dir=log_dir, name=name, version=version),
         # logger = TensorBoardLogger(save_dir=log_dir, name=name, version=version),
-        callbacks=[checkpoint_callback,
-                #    early_stop_callback, 
-                   lr_monitor_callback,
-                #    prune_callback
-                   ],
+        callbacks=callbacks,
         # reload_dataloaders_every_n_epochs=1,
         # log_every_n_steps=40
         # profiler="advanced",
@@ -113,7 +113,8 @@ def objective(trial: optuna.trial.Trial) -> float:
     trainer.logger.log_hyperparams(hyperparameters)
     # Train the model ⚡
     trainer.fit(model, datamodule=datamodule)
-    # prune_callback.check_pruned()
+    if "resnet" in exp_name:
+        prune_callback.check_pruned()
     trainer.test(ckpt_path='best', datamodule=datamodule )  
     return trainer.callback_metrics["test/acc"].item()
 
@@ -156,8 +157,9 @@ def delete_bad_ckpt_callback(study, trial):
     print("study.best_value: ",study.best_value)
     path = trial.user_attrs["logging_path"]
     # print("trial logging path: ", path)
-    if  trial.number <= 25 or trial.value< max(study.best_value, 0.6):
-        os.system(f'rm -r {path}')
+    # if  trial.number <= 25 or trial.value< max(study.best_value*0.9, 0.55):
+    if  trial.number < 5 or trial.value< study.best_value*0.95:
+        os.system(f'rm -r {path}'+"/checkpoints")
     # if study.best_trial.number != trial.number:
     #     study.set_user_attr(key="best_booster", value=trial.user_attrs["best_booster"])    
         
@@ -183,15 +185,14 @@ if __name__ == "__main__":
     # pruner = optuna.pruners.NopPruner() if config.get('no_prune') else \
     #     optuna.pruners.MedianPruner(n_warmup_steps=12,interval_steps=2)
    
-    # storage = "mysql+mysqlconnector://root:test1234@10.244.198.163:3306/ddp_database"
-    storage = "postgresql+psycopg2://testUser:testPassword@10.244.118.123:5432/testDB"
+    storage='postgresql+psycopg2://testUser:testPassword@10.244.244.151:5432/testDB'
     print("creating a new study")
     if  len(sys.argv) > 2:
         study_name = "dev"  
-    elif 'resnet' in exp_name:
-        study_name = exp_name  
+    # elif 'resnet' in exp_name:
+    #     study_name = exp_name  
     else:
-        study_name = "pretrained_"+exp_name
+        study_name = exp_name
     study = optuna.create_study(
         study_name=study_name,
         storage=storage,

@@ -63,7 +63,6 @@ import numpy as np
 
 
 class MMD_loss(nn.Module):
-    @torch.no_grad()
     def __init__(self, MMD_sample_size=float('inf'), kernel_mul = 2.0, kernel_num = 5, fix_sigma=None,):
         super(MMD_loss, self).__init__()
         self.kernel_num = kernel_num

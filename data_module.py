@@ -34,6 +34,8 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
                 if self.config['dataset'].get('single_receiver') :
                     break       
         print("finished preparing dataloader")
+        random.seed(12)
+        random.shuffle(self.domained_data[3])
         
     # def parepare_dataset(self) :
     #     # pickleFile = open("/root/dataset/ManyTx.pkl","rb")

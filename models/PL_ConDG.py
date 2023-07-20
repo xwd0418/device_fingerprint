@@ -50,8 +50,8 @@ class ConDG(Baseline_Resnet):
         loss = self.criterion(logits, y)
         preds = torch.argmax(logits, dim=1)
         self.train_accuracy(preds, y)
-        self.log("train/cls_loss", loss,  prog_bar=False, on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch)
-        self.log("train/acc", self.train_accuracy, prog_bar=True, on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch)
+        self.log("train/cls_loss", loss,  prog_bar=False, on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)
+        self.log("train/acc", self.train_accuracy, prog_bar=True, on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)
 
         # conditional domain classifier
         if self.config['experiment']['con_domain_coeff']: 
@@ -64,14 +64,14 @@ class ConDG(Baseline_Resnet):
                                                 hook_coeff=self.con_rgl_coeff, loss_coeff=self.con_loss_coeff) 
             loss +=  self.config['experiment']['con_domain_coeff'] * con_domain_loss
             self.log("train/con_domain_loss", con_domain_loss, on_step=not self.train_log_on_epoch,
-                        on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch )
+                        on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1 )
 
         if self.config['experiment']['weighted_domain_coeff']:   
             # weighted domain classifier
             weighted_domain_loss = self.general_domain_classifier(feature, y, date, hook_coeff=self.general_rgl_coeff, loss_coeff=self.general_loss_coeff) 
             loss += self.config['experiment']['weighted_domain_coeff'] * weighted_domain_loss
             self.log("train/weighted_domain_loss", weighted_domain_loss, on_step=not self.train_log_on_epoch,
-                     on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch )
+                     on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1 )
 
         discrepency_loss = None
         if self.config['experiment'].get('discrepency_metric') == "MMD":
@@ -93,11 +93,11 @@ class ConDG(Baseline_Resnet):
         if  discrepency_loss is not None:   
             loss +=  self.config['experiment']['discrepency_coeff']*discrepency_loss
             self.log("train/discrepency_loss", discrepency_loss, on_step=not self.train_log_on_epoch,
-                        on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch )
+                        on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1 )
 
 
         self.log("train/loss", loss, on_step=not self.train_log_on_epoch,
-                     on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch )
+                     on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1 )
 
         return loss
 

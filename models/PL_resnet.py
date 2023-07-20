@@ -48,9 +48,9 @@ class Baseline_Resnet(PL.LightningModule):
         preds = torch.argmax(logits, dim=1)
         self.train_accuracy(preds, y)
         self.log("train/loss", loss,  prog_bar=False, on_step=not self.train_log_on_epoch,
-                 on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch)
+                 on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)
         self.log("train/acc", self.train_accuracy, prog_bar=True, on_step=not self.train_log_on_epoch, 
-                 on_epoch=self.train_log_on_epoch, sync_dist=self.train_log_on_epoch)   
+                 on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)   
 
         return loss
     
@@ -105,7 +105,7 @@ class Baseline_Resnet(PL.LightningModule):
         elif self.config['experiment'].get('optimizer') == "Adam":
             optimizer = torch.optim.Adam(self.parameters(),
                                     lr= self.config['experiment']['learning_rate'],
-                                    weight_decay=0.0005)
+                                    weight_decay=self.config['experiment']['weight_decay'])
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
         return {'optimizer': optimizer,"lr_scheduler":scheduler, "monitor":"val/loss"}
         
@@ -115,8 +115,13 @@ class Baseline_Resnet(PL.LightningModule):
         model.conv1 = nn.Conv1d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)            
         self.encoder =  model                      
         
-        if self.config['use_pretrained']:
-            model_path = '/root/exps_autotune/resnet/single/trail283/checkpoints/epoch=21-step=7612.ckpt'
+        load_from = self.config['experiment'].get("load_from")
+        if load_from:
+            checkpoint = torch.load(load_from)
+            print(f'loaded from {load_from}')
+            self.load_state_dict(checkpoint['state_dict']) 
+        elif self.config['use_pretrained']:
+            model_path = '/root/ckpts/resnet_all_58_accu.ckpt'
             checkpoint = torch.load(model_path)
             print('successfully loaded')
             self.load_state_dict(checkpoint['state_dict'])
@@ -127,3 +132,22 @@ class Baseline_Resnet(PL.LightningModule):
         iter_num = max(iter_num-kick_in_iter, 0)
         return float(2* (high - low) / (1.0 + np.exp(-alpha*iter_num / max_iter)) - (high - low) + low)
 
+
+    def give_opt_and_sch(self):
+        if type(self.lr_schedulers()) is not list:
+            yield self.optimizers(), self.lr_schedulers()
+        else:
+            for i in range(len(self.lr_schedulers())):
+                yield  self.optimizers()[i], self.lr_schedulers()[i]
+    def give_opt(self):
+        if type(self.lr_schedulers()) is not list:
+            yield self.optimizers()
+        else:
+            for i in range(len(self.lr_schedulers())):
+                yield  self.optimizers()[i]
+    def give_sch(self):
+        if type(self.lr_schedulers()) is not list:
+            yield self.lr_schedulers()
+        else:
+            for i in range(len(self.lr_schedulers())):
+                yield  self.lr_schedulers()[i]
