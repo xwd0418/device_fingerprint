@@ -93,21 +93,32 @@ class Baseline_Resnet(PL.LightningModule):
         else:
             return x,y
     
-    def configure_optimizers(self):
+    def configure_optimizers(self, opt_config_location='experiment'):
      
         # print(self.parameters())
-        if self.config['experiment'].get('optimizer') == "SGD":
+        if self.config[opt_config_location].get('optimizer') == "SGD":
             optimizer = torch.optim.SGD(self.parameters(),
-                                        lr =self.config['experiment']['learning_rate'],
-                                        momentum=self.config['experiment']['momentum'],
-                                        weight_decay=self.config['experiment']['weight_decay'], 
-                                        nesterov=self.config['experiment']['nesterov']=="True")
-        elif self.config['experiment'].get('optimizer') == "Adam":
+                                        lr =self.config[opt_config_location]['learning_rate'],
+                                        momentum=self.config[opt_config_location]['momentum'],
+                                        weight_decay=self.config[opt_config_location]['weight_decay'], 
+                                        nesterov=self.config[opt_config_location]['nesterov']=="True")
+        elif self.config[opt_config_location].get('optimizer') == "Adam":
             optimizer = torch.optim.Adam(self.parameters(),
-                                    lr= self.config['experiment']['learning_rate'],
-                                    weight_decay=self.config['experiment']['weight_decay'])
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
+                                    lr= self.config[opt_config_location]['learning_rate'],
+                                    weight_decay=self.config[opt_config_location]['weight_decay'])
+        scheduler = self.get_sch(self.config.get("scheduler"),optimizer)
         return {'optimizer': optimizer,"lr_scheduler":scheduler, "monitor":"val/loss"}
+        
+        
+    def get_sch(self, sch_config,optimizer):
+        if sch_config is None:
+            return torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
+        kwargs = sch_config['kwargs']
+        if sch_config['type'] == "ReduceLROnPlateau":
+            return torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', **kwargs)
+        if sch_config['type'] == "CyclicLR":
+            return torch.optim.lr_scheduler.CyclicLR(optimizer,**kwargs)
+
         
     def get_model(self):
         model = resnet18(pretrained=False, num_classes=self.num_classes)

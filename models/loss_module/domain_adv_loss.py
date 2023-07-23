@@ -23,7 +23,11 @@ class DALoss(nn.Module):
     
 if __name__ == "__main__":
     metric = DALoss()
-    a = torch.rand([64,1])
-    b = 2
-    loss = metric(a,b)
+    bce = nn.BCELoss(reduction='mean')
+
+    a = torch.tensor([0.5]).float()
+    b= torch.ones([1])
+    # b= torch.zeros([1])
+    # loss = metric(a)
+    loss = bce(a,b)
     print(loss)

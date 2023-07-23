@@ -70,18 +70,19 @@ def objective(trial: optuna.trial.Trial) -> float:
     checkpoint_callback = PL.callbacks.ModelCheckpoint(monitor="val/loss", mode="min", save_last=False, save_weights_only=False)
     lr_monitor_callback = LearningRateMonitor(logging_interval='epoch')
     callbacks = [checkpoint_callback, lr_monitor_callback]
-    if "resnet" in exp_name:
+    # if "resnet" in exp_name:
+    if config['experiment']['adv_coeff'] == 0:
         early_stop_callback = EarlyStopping(monitor="val/loss", mode="min", patience=10)
         prune_callback = PyTorchLightningPruningCallback(trial, monitor="val/acc")
         callbacks.append(early_stop_callback)
         callbacks.append(prune_callback)
     # swa_callback = StochasticWeightAveraging(swa_lrs=1e-2)
-    log_dir = f'/root/exps_multi_optim/' 
+    log_dir = f'/root/exps_adam/' 
     os.makedirs(log_dir, exist_ok=True)
 
 
     # Initialize a trainer
-    max_epoch = 2  if len(sys.argv) > 2 else 500
+    max_epoch = 2  if len(sys.argv) > 2 else config['experiment']['num_epochs']
     
     if torch.cuda.device_count() < 2:
         strategy = 'auto'  
@@ -113,13 +114,14 @@ def objective(trial: optuna.trial.Trial) -> float:
     trainer.logger.log_hyperparams(hyperparameters)
     # Train the model ⚡
     trainer.fit(model, datamodule=datamodule)
-    if "resnet" in exp_name:
+    # if "resnet" in exp_name:
+    if config['experiment']['adv_coeff'] == 0:
         prune_callback.check_pruned()
     trainer.test(ckpt_path='best', datamodule=datamodule )  
     return trainer.callback_metrics["test/acc"].item()
 
 def get_config(exp_name):
-    config_file_path = f'/root/configs_multi_optim/'+ exp_name + '.json'
+    config_file_path = f'/root/configs_optuna/'+ exp_name + '.json'
     f = open(config_file_path)        
     config = json.load(f)
     return config
@@ -149,6 +151,7 @@ def sample_config(trial, config):
                     else:
                         assert(v[-1].split("=")[0]=="step")
                         step = float(v[-1].split("=")[1])
+                # print(f'{k}\n\n')
                 config[k] = trial.suggest_float(k, v[1], v[2], log=log, step=step)
                 
 
@@ -200,7 +203,7 @@ if __name__ == "__main__":
         # pruner=pruner,
         load_if_exists=True, 
     )
-    study.optimize(objective, n_trials=500, callbacks=[delete_bad_ckpt_callback])
+    study.optimize(objective, n_trials=200, callbacks=[delete_bad_ckpt_callback])
     
 
     print("Number of finished trials: {}".format(len(study.trials)))

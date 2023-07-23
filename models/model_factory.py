@@ -104,6 +104,7 @@ class Discriminator(nn.Module):
     # print("self.training,\n\n", self.training)
     if self.training:
         x.register_hook(grl_hook(hook_coeff))
+        # pass
     y = self.mlp(x)
     # y = self.sigmoid(y)
     return y
@@ -186,7 +187,12 @@ class MLP(torch.nn.Sequential):
             in_dim = hidden_dim
 
         layers.append(torch.nn.Linear(in_dim, hidden_channels[-1], bias=bias))
-        layers.append(torch.nn.Dropout(dropout, **params))
+        # layers.append(torch.nn.Dropout(dropout, **params))
 
         super().__init__(*layers)
         # _log_api_usage_once(self)
+        
+if __name__ == "__main__":
+    dis = Discriminator(4,[64])
+    input = torch.tensor([54,45,65,76])
+    target = []
