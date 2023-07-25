@@ -3,6 +3,7 @@ from models.PL_MMD_AAE import *
 from models.PL_ConDG import *
 import torch._inductor.config as torch_config
 import json, shutil
+from models.utils import convert_layers
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.callbacks import LearningRateMonitor, StochasticWeightAveraging
 from pytorch_lightning.loggers import TensorBoardLogger
@@ -65,13 +66,19 @@ def objective(trial: optuna.trial.Trial) -> float:
         model = MMD_AAE(config)  
     if config['model']['name'] == 'ConDG':
         model = ConDG(config, datamodule)      
-        
+      
+    if config['experiment'].get("group_norm"):
+        print("doing gn! \n\n\n")
+        num_groups = config['experiment']['num_groups']
+        model = convert_layers(model, torch.nn.BatchNorm2d, torch.nn.GroupNorm, num_groups = num_groups)
     '''callbacks'''
     checkpoint_callback = PL.callbacks.ModelCheckpoint(monitor="val/loss", mode="min", save_last=False, save_weights_only=False)
     lr_monitor_callback = LearningRateMonitor(logging_interval='epoch')
     callbacks = [checkpoint_callback, lr_monitor_callback]
     # if "resnet" in exp_name:
-    if config['experiment']['adv_coeff'] == 0:
+    should_early_stop = config['experiment'].get('adv_coeff') is None or config['experiment'].get('adv_coeff') == 0
+    if should_early_stop:
+        # print("should early stop!!!\n\n\n")
         early_stop_callback = EarlyStopping(monitor="val/loss", mode="min", patience=10)
         prune_callback = PyTorchLightningPruningCallback(trial, monitor="val/acc")
         callbacks.append(early_stop_callback)
@@ -115,7 +122,7 @@ def objective(trial: optuna.trial.Trial) -> float:
     # Train the model ⚡
     trainer.fit(model, datamodule=datamodule)
     # if "resnet" in exp_name:
-    if config['experiment']['adv_coeff'] == 0:
+    if should_early_stop == 0:
         prune_callback.check_pruned()
     trainer.test(ckpt_path='best', datamodule=datamodule )  
     return trainer.callback_metrics["test/acc"].item()
@@ -162,7 +169,7 @@ def delete_bad_ckpt_callback(study, trial):
     # print("trial logging path: ", path)
     # if  trial.number <= 25 or trial.value< max(study.best_value*0.9, 0.55):
     if  trial.number < 5 or trial.value< study.best_value*0.95:
-        os.system(f'rm -r {path}'+"/checkpoints")
+        os.system(f'rm -r {path}'+"/")
     # if study.best_trial.number != trial.number:
     #     study.set_user_attr(key="best_booster", value=trial.user_attrs["best_booster"])    
         
@@ -184,9 +191,11 @@ if __name__ == "__main__":
 
     print("Running Experiment: ", exp_name)
     config = get_config(exp_name)
-            
-    # pruner = optuna.pruners.NopPruner() if config.get('no_prune') else \
-    #     optuna.pruners.MedianPruner(n_warmup_steps=12,interval_steps=2)
+
+    should_early_stop = config['experiment'].get('adv_coeff') is None or config['experiment'].get('adv_coeff') == 0            
+    pruner = optuna.pruners.MedianPruner(n_warmup_steps=12,interval_steps=2) if should_early_stop \
+                else optuna.pruners.NopPruner() 
+        
    
     storage='postgresql+psycopg2://testUser:testPassword@10.244.244.151:5432/testDB'
     print("creating a new study")
@@ -200,7 +209,7 @@ if __name__ == "__main__":
         study_name=study_name,
         storage=storage,
         direction="maximize",
-        # pruner=pruner,
+        pruner=pruner,
         load_if_exists=True, 
     )
     study.optimize(objective, n_trials=200, callbacks=[delete_bad_ckpt_callback])

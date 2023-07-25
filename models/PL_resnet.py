@@ -103,9 +103,15 @@ class Baseline_Resnet(PL.LightningModule):
                                         weight_decay=self.config[opt_config_location]['weight_decay'], 
                                         nesterov=self.config[opt_config_location]['nesterov']=="True")
         elif self.config[opt_config_location].get('optimizer') == "Adam":
+            adam_kwargs = {}
+            if self.config.get('Adam_args'):
+                adam_kwargs['betas'] = self.config['Adam_args']['b1'],self.config['Adam_args']['b2']
+                adam_kwargs['eps'] = self.config['Adam_args']['eps']
+                # print("hahah\n\n\n")
             optimizer = torch.optim.Adam(self.parameters(),
                                     lr= self.config[opt_config_location]['learning_rate'],
-                                    weight_decay=self.config[opt_config_location]['weight_decay'])
+                                    weight_decay=self.config[opt_config_location]['weight_decay'],
+                                    **adam_kwargs)
         scheduler = self.get_sch(self.config.get("scheduler"),optimizer)
         return {'optimizer': optimizer,"lr_scheduler":scheduler, "monitor":"val/loss"}
         
@@ -117,7 +123,8 @@ class Baseline_Resnet(PL.LightningModule):
         if sch_config['type'] == "ReduceLROnPlateau":
             return torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', **kwargs)
         if sch_config['type'] == "CyclicLR":
-            return torch.optim.lr_scheduler.CyclicLR(optimizer,**kwargs)
+            return torch.optim.lr_scheduler.CyclicLR(optimizer,
+                    cycle_momentum=self.config['experiment']['optimizer']!="Adam",**kwargs)
 
         
     def get_model(self):
@@ -162,3 +169,5 @@ class Baseline_Resnet(PL.LightningModule):
         else:
             for i in range(len(self.lr_schedulers())):
                 yield  self.lr_schedulers()[i]
+                
+    

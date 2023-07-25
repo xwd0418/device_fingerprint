@@ -8,7 +8,7 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
         super().__init__()
         self.data_from_pickle = data_from_pickle
         self.config = config
-        self.loader_num_worker = os.cpu_count()
+        self.loader_num_worker = 32
         self.parepare_dataset()
         self.batch_size = int(config['dataset']['batch_size']) // 3
         # self.setup()
@@ -59,21 +59,21 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
             batch_size=self.batch_size,
             pin_memory=True,
             shuffle=True,
-            # num_workers=self.loader_num_worker,
+            num_workers=self.loader_num_worker,
             # persistent_workers=True
         )
 
 
     def val_dataloader(self):
         return DataLoader(self.df_data_val, 
-                          batch_size=4096, 
-                        #   num_workers=self.loader_num_worker,
+                          batch_size=128, 
+                          num_workers=self.loader_num_worker,
                         #   persistent_workers=True
                           )
 
     def test_dataloader(self):
         return DataLoader(self.df_data_test, 
-                          batch_size=4096, 
+                          batch_size=128, 
                         #   num_workers=self.loader_num_worker,
                         #   persistent_workers=True
                           )

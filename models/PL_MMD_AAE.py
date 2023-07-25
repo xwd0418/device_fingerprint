@@ -10,6 +10,7 @@ class MMD_AAE(Baseline_Resnet):
         super().__init__(config)
         self.feat_accuracy = Accuracy( task = 'binary')
         self.prior_accuracy = Accuracy( task = 'binary')
+        self.on_step = True
 
         
         self.automatic_optimization = self.config['experiment'].get('single_optimizer') is not False
@@ -28,6 +29,7 @@ class MMD_AAE(Baseline_Resnet):
             self.mmd_loss = MMD_loss(MMD_sample_size=config['experiment']['MMD_sample_size'])
         
         
+        self.load_pretrained()
             
         # '''just fot this time'''
         # model_path = '/root/exps_dev/MMD_AAE/only_adv/version_0/checkpoints/last.ckpt'
@@ -48,9 +50,9 @@ class MMD_AAE(Baseline_Resnet):
         loss = self.criterion(logits, y)
         preds = torch.argmax(logits, dim=1)
         self.train_accuracy(preds, y)
-        self.log("train/cls_loss", loss,  prog_bar=False,on_step=not self.train_log_on_epoch,
+        self.log("train/cls_loss", loss,  prog_bar=False,on_step = self.on_step,
                  on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)
-        self.log("train/acc", self.train_accuracy, prog_bar=True, on_step= self.train_log_on_epoch,
+        self.log("train/acc", self.train_accuracy, prog_bar=True, on_step = self.on_step,
                  on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)   
            
         if not self.automatic_optimization:
@@ -59,7 +61,7 @@ class MMD_AAE(Baseline_Resnet):
             fe_opt.zero_grad()
             # self.manual_backward(loss, retain_graph= True)
             self.manual_backward(mmd1+mmd2+mmd3)
-            # self.log("train/total_loss",loss, prog_bar=True, on_step= self.train_log_on_epoch,
+            # self.log("train/total_loss",loss, prog_bar=True, on_step = self.on_step,
             #              on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1 )
             
             fe_opt.step()
@@ -76,9 +78,9 @@ class MMD_AAE(Baseline_Resnet):
             feat1, feat2, feat3 = feature[idx1], feature[idx2], feature[idx3]
             feat1, feat2, feat3 = feat1.view(len(feat1), -1), feat2.view(len(feat2), -1), feat3.view(len(feat3), -1)
             assert (len(feat1)+len(feat2)+len(feat3)==len(feature))
-            mmd1, mmd2, mmd3 = self.mmd_loss(feat1,feat1),self.mmd_loss(feat1,feat3),self.mmd_loss(feat2,feat3),
+            mmd1, mmd2, mmd3 = self.mmd_loss(feat1,feat2),self.mmd_loss(feat1,feat3),self.mmd_loss(feat2,feat3),
             loss +=  self.config['experiment']['MMD_coeff']*(mmd1+mmd2+mmd3)
-            self.log("train/mmd", mmd1+mmd2+mmd3, prog_bar=True, on_step= self.train_log_on_epoch,
+            self.log("train/mmd", mmd1+mmd2+mmd3, prog_bar=True, on_step = self.on_step,
                      on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1 )
         
             if not self.automatic_optimization:
@@ -103,7 +105,7 @@ class MMD_AAE(Baseline_Resnet):
             decoded_original_signal = self.decoder(feature)
             reconstruct_loss = self.reconstruct_criterion(decoded_original_signal,x)
             loss += self.config['experiment']['recontruct_coeff']*reconstruct_loss 
-            self.log("train/recons_loss", reconstruct_loss, on_step= self.train_log_on_epoch,
+            self.log("train/recons_loss", reconstruct_loss, on_step = self.on_step,
                      on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1 ) 
             
             if not self.automatic_optimization:
@@ -137,16 +139,16 @@ class MMD_AAE(Baseline_Resnet):
             loss += self.config['experiment']['adv_coeff']*adv_loss
            
             self.log("train/domain_feat_pred", torch.mean(domain_prediction[0:feat.shape[0]]),
-                     on_step= self.train_log_on_epoch, on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)
+                     on_step = self.on_step, on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)
             self.log("train/domain_prior_pred", torch.mean(domain_prediction[feat.shape[0]:]), 
-                     on_step= self.train_log_on_epoch, on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)
-            self.log("train/adv_loss", adv_loss, on_step= self.train_log_on_epoch,
+                     on_step = self.on_step, on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)
+            self.log("train/adv_loss", adv_loss, on_step = self.on_step,
                      on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)
-            # self.log("train/domain_accu", self.feat_accuracy, on_step= self.train_log_on_epoch,
+            # self.log("train/domain_accu", self.feat_accuracy, on_step = self.on_step,
             #          on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)
-            # self.log("train/prior_accu", self.prior_accuracy, on_step= self.train_log_on_epoch,
+            # self.log("train/prior_accu", self.prior_accuracy, on_step = self.on_step,
             #          on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)
-            # self.log("train/iter_coeff", rgl_coeff, on_step= self.train_log_on_epoch,
+            # self.log("train/iter_coeff", rgl_coeff, on_step = self.on_step,
             #          on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)
             
             if not self.automatic_optimization:
@@ -166,8 +168,9 @@ class MMD_AAE(Baseline_Resnet):
         #         adv_sch = next(sch_retriver)   
         #         adv_sch.step() 
         
-        # self.log("train/total_loss", loss, prog_bar=True, on_step= self.train_log_on_epoch,
+        # self.log("train/total_loss", loss, prog_bar=True, on_step = self.on_step,
         #              on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1 )  
+
         return loss
     
     def get_prior_feat(self, shape):
@@ -241,7 +244,13 @@ class MMD_AAE(Baseline_Resnet):
         #     adv_sch = next(sch_retriver)   
         #     adv_sch.step()
 
-    
+    def load_pretrained(self):
+        ckpt = self.config['experiment'].get('load_from_MMD_AAE')
+        if ckpt :
+            ckpt = torch.load(ckpt)
+            # print(f'loaded from {ckpt}')
+            self.load_state_dict(ckpt['state_dict'],strict=False) 
+            
 '''additional debug step
 1. removed schs 
 2. progress on step
