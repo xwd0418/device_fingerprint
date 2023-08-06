@@ -38,7 +38,7 @@ class Up(nn.Module):
 
         # if bilinear, use the normal convolutions to reduce the number of channels
         if linear:
-            self.up = nn.Upsample(scale_factor=2, mode='linear', align_corners=True)
+            self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
             self.conv = DoubleConv(in_channels, out_channels, in_channels // 2, oneD=oneD) 
                 
         else:
@@ -68,13 +68,12 @@ class OutConv(nn.Module):
         return self.conv(x)
 
 class Decoder(nn.Module):
-    def __init__(self, n_channels_in, n_channels_out, linear = True, oneD=True):
+    def __init__(self, n_channels_in, n_channels_out, linear = True, twoD=False):
+        oneD = twoD is None or not twoD 
         super(Decoder, self).__init__()
-        self.n_channels_in = n_channels_in
-        self.n_channels_out = n_channels_out
         self.linear = linear
         
-        self.up1 = Up(512, 256 , linear, oneD=oneD)
+        self.up1 = Up(n_channels_in, 256 , linear, oneD=oneD)
         self.up2 = Up(256, 128 , linear, oneD=oneD)
         self.up3 = Up(128, 64, linear, oneD=oneD)
         self.up4 = Up(64, 32, linear, oneD=oneD)
@@ -123,10 +122,11 @@ class AdvMLPClassifier(nn.Module):
         assert(torch.sum(label_distribution[0])==self.domain_distribution[0])
         
     def forward(self, feature, y, date, hook_coeff, loss_coeff ):
+        feature = feature.view(len(feature),-1)
         if self.training:
             feature.register_hook(grl_hook(hook_coeff))
     
-        prediction = self.classfier(feature.view(len(feature),-1))
+        prediction = self.classfier(feature)
         loss = self.loss(prediction,date)
         
         # move to cuda
@@ -142,8 +142,9 @@ class AdvMLPClassifier(nn.Module):
         else:
             loss = loss * self.total_size / self.domain_distribution[date]
             
-        return loss.mean()*loss_coeff
-    
+        return prediction, loss.mean()*loss_coeff/(hook_coeff+1)
+        # divided by hook_coeff+1 is because we want to have the sum(gradient coeffs of the two parts)==1
+        # hook_coeff can be pretty large (range from 0.001 to 19) 
      
 def grl_hook(hook_coeff):
     def fun1(grad):

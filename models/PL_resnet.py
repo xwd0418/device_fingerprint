@@ -10,7 +10,9 @@ from pytorch_lightning.loggers import CSVLogger
 from torch import nn
 from torch.nn import functional as F
 from torchmetrics import Accuracy
-from models.resnet import resnet18
+from models.resnet import resnet18 as resnet_1d
+from models.resnet_2d import resnet50 as resnet_2d
+# from torchvision.models import resnet50, ResNet50_Weights
 
 class Baseline_Resnet(PL.LightningModule):
     def __init__(self,config):
@@ -26,6 +28,7 @@ class Baseline_Resnet(PL.LightningModule):
         self.test_accuracy = Accuracy(task="multiclass", num_classes=self.num_classes)
         self.train_log_on_epoch = True
         self.test_result = -1
+        self.best_val_acc = 0
         
     def forward(self, x, feat=False):
         x = self.encoder(x, feat=feat)
@@ -37,6 +40,7 @@ class Baseline_Resnet(PL.LightningModule):
     #     for d in self.trainer.datamodule.df_data_train:
     #         random.shuffle(d)
     #     print("traing loader is shuffled")
+
     
     def training_step(self, batch, batch_idx):
         x, y = self.unpack_batch(batch)
@@ -65,7 +69,8 @@ class Baseline_Resnet(PL.LightningModule):
         self.val_accuracy(preds, y)
         self.log("val/loss", loss, prog_bar=False, sync_dist=True)
         self.log("val/acc", self.val_accuracy, prog_bar=True, sync_dist=True)
-
+        if self.val_accuracy.compute() > self.best_val_acc :
+            self.best_val_acc  =  self.val_accuracy.compute()
         
     def test_step(self, batch, batch_idx):
         x, y = self.unpack_batch(batch, single_domain_loader=True)
@@ -108,7 +113,7 @@ class Baseline_Resnet(PL.LightningModule):
                 adam_kwargs['betas'] = self.config['Adam_args']['b1'],self.config['Adam_args']['b2']
                 adam_kwargs['eps'] = self.config['Adam_args']['eps']
                 # print("hahah\n\n\n")
-            optimizer = torch.optim.Adam(self.parameters(),
+            optimizer = torch.optim.AdamW(self.parameters(),
                                     lr= self.config[opt_config_location]['learning_rate'],
                                     weight_decay=self.config[opt_config_location]['weight_decay'],
                                     **adam_kwargs)
@@ -128,9 +133,12 @@ class Baseline_Resnet(PL.LightningModule):
 
         
     def get_model(self):
-        model = resnet18(pretrained=False, num_classes=self.num_classes)
-        in_channels = 2
-        model.conv1 = nn.Conv1d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)            
+        if self.config['dataset'].get('img'):
+            model = resnet_2d(pretrained=True)
+        else: 
+            model = resnet_1d(pretrained=False, num_classes=self.num_classes)
+            in_channels = 2
+            model.conv1 = nn.Conv1d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)            
         self.encoder =  model                      
         
         load_from = self.config['experiment'].get("load_from")

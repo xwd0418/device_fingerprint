@@ -8,7 +8,7 @@
 import os   
 from tqdm import tqdm
 from glob import glob
-dirs = glob("/root/exps_multi_optim/resnet/single/*")
+dirs = glob("/root/exps_adam/Con_DG/single/*")
 len(dirs)
 from os import path
 n=0

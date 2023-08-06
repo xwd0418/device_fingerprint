@@ -1,14 +1,18 @@
 import pytorch_lightning as pl
+from pytorch_lightning.utilities.types import TRAIN_DATALOADERS
 from torch.utils.data import DataLoader, random_split
 import random, numpy as np, torch, os, pickle
+from glob import glob
+# from PIL import Image
+import cv2
 
-
+'''device fingerprint dataset'''
 class DeviceFingerpringDataModule(pl.LightningDataModule):
     def __init__(self, config, data_from_pickle=None):
         super().__init__()
         self.data_from_pickle = data_from_pickle
         self.config = config
-        self.loader_num_worker = 32
+        self.loader_num_worker = os.cpu_count()
         self.parepare_dataset()
         self.batch_size = int(config['dataset']['batch_size']) // 3
         # self.setup()
@@ -25,17 +29,17 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
         self.domained_data = [],[],[],[]
         self.label_distribution = torch.zeros((len(self.domained_data),len(data))) 
         for label in range(len(data)):
-            # one_hot_encoded = F.one_hot(torch.tensor([label]), num_classes=len(data))
             for i in data[label]:
                 for date, j in enumerate(i):
-                    for k in j[1]: # remove this [0:10] later!!!
+                    for k in j[1]:
                         self.domained_data[date].append((k.T.astype("float32"),label, date)) 
                         self.label_distribution[date,label]+=1
                 if self.config['dataset'].get('single_receiver') :
                     break       
         print("finished preparing dataloader")
         random.seed(12)
-        random.shuffle(self.domained_data[3])
+        for i in range(4):
+            random.shuffle(self.domained_data[i])
         
     # def parepare_dataset(self) :
     #     # pickleFile = open("/root/dataset/ManyTx.pkl","rb")
@@ -104,7 +108,71 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
             
         if stage == "test":    
             self.df_data_test = self.domained_data[3][val_size:]
-       
+   
+class VLCSDataModule(pl.LightningDataModule):
+    def __init__(self, config):
+        super().__init__()
+        # self.data_from_pickle = data_from_pickle
+        self.config = config
+        self.loader_num_worker = 8
+        self.batch_size = int(config['dataset']['batch_size']) // 3
+        self.V_data = ImageDataset("VOC2007", 0)
+        self.L_data = ImageDataset("LabelMe", 1)
+        self.C_data = ImageDataset("Caltech101", 2)
+        self.S_data = ImageDataset("SUN09", 3)
+        
+        self.label_distribution = torch.zeros(4,5) 
+        for iter, dataset in enumerate([self.V_data, self.L_data, self.C_data,self.S_data]):
+            self.label_distribution[iter] = dataset.label_distribution
+    
+    def train_dataloader(self) -> TRAIN_DATALOADERS:
+        return DataLoader(
+            ConcatDataset([self.V_data, self.L_data, self.C_data]),
+            batch_size=self.batch_size,
+            pin_memory=True,
+            shuffle=True,
+            num_workers=self.loader_num_worker,
+            # persistent_workers=True
+        )
+        
+    def val_dataloader(self):
+        return DataLoader(self.S_data, 
+                          batch_size=self.batch_size * 3, 
+                          num_workers=self.loader_num_worker,
+                        #   persistent_workers=True
+                          )
+
+        
+        
+class ImageDataset(torch.utils.data.Dataset):
+    def __init__(self, name, domain_label):
+        classes = sorted(glob(f"/root/dataset/VLCS/{name}/*/"))
+        self.all_items = []
+        self.label_distribution = torch.zeros(5) 
+        for class_label, class_path in enumerate(classes):
+            print(class_path)
+            all_paths = glob(f"{class_path}*")
+            self.all_items += [ (all_paths[i], class_label, domain_label) for i in range(len(all_paths))] [0:3]
+            # for img_path in  all_paths:
+            #     img = cv2.imread(img_path)
+            #     img = cv2.resize(img, (224,224), interpolation = cv2.INTER_AREA)
+            #     img = np.asarray(img, dtype="float32")
+            #     img = np.transpose(img, (2, 0, 1))
+            #     self.all_items.append((img, class_label, domain_label))
+            self.label_distribution[class_label] = len(all_paths)
+        random.shuffle(self.all_items)
+     
+    def __getitem__(self, i):
+        item = self.all_items[i]
+        img = cv2.imread(item[0])
+        img = cv2.resize(img, (224,224), interpolation = cv2.INTER_AREA)
+        img = np.transpose(img, (2, 0, 1))
+        img = torch.from_numpy(img).float()
+        return img, item[1], item[2]
+     
+    def __len__(self):
+        return len(self.all_items)
+    
 class ConcatDataset(torch.utils.data.Dataset):
     def __init__(self, datasets):
         self.datasets = datasets

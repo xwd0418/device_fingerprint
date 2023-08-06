@@ -1,32 +1,38 @@
 {
     "dataset": {
-        "batch_size": ["optuna", 16, 560, "log"],
+        "batch_size":512,
         "single_receiver":true
     },
     "experiment": {
-        "num_epochs": 500,
+        "num_epochs": 100,
         "learning_rate": ["optuna" , 1e-4, 0.01],
-        "optimizer":"SGD",
-        "momentum": ["optuna", 0.75, 0.99, "log"],
-        "dampening": ["optuna", 0.0005, 0.5, "log"],
-        "weight_decay": ["optuna", 0.0005, 0.5, "log"],
-        "nesterov":["optuna", "True","False"],
-        "ckpt_path":null,        
-        "discrepency_metric": ["optuna", "JSD", "MMD"],
-        "discrepency_coeff":["optuna", 0.001, 100.0, "log"],  
-        "con_domain_coeff":["optuna", 0.001, 100.0, "log"], 
-        "weighted_domain_coeff":["optuna", 0.001, 100.0, "log"], 
-        "con_rgl_kick_in_position":["optuna", 20,10000, "log"],
-        "con_loss_kick_in_position":["optuna", 10,2000, "log"],
-        "general_rgl_kick_in_position":["optuna", 20,10000, "log"],
-        "general_loss_kick_in_position":["optuna", 10,2000, "log"]
+        "optimizer":"Adam",
+        "weight_decay": ["optuna", 1e-5, 1e-3, "log"],
+        "discrepency_metric": "MMD",
+        "MMD_kwargs": {
+            "kernel_mul" : ["optuna", 0.5, 3.0, "step=0.1"],   
+            "kernel_num" : ["optuna", 2,7],
+            "MMD_sample_size":32
+        },
+        "discrepency_coeff":["optuna", 0.2, 1.5, "log"],  
+        "con_domain_coeff":["optuna", 0.005, 1.2, "log"], 
+        "weighted_domain_coeff":["optuna", 0.03, 1.2, "log"], 
+        "con_loss_kick_in_position":["optuna", 600,15000, "log"],
+        "general_loss_kick_in_position":["optuna", 600,15000, "log"]
+
+   
+    },
+    "Adam_args":{
+        "b1":["optuna", 0.1, 0.99999, "log"], 
+        "b2":["optuna", 0.1, 0.99999, "log"], 
+        "eps":["optuna", 1e-10, 1e-2, "log"]
     },
     "model": {
         "name": "ConDG",
-        "linear": true,
-        "con_layer_nums":["optuna", 1,2],
-        "general_layer_nums":["optuna", 1,3],
-        "con_hidden_size_range": [64, 256],
-        "general_hidden_size_range": [64, 512]
+        "con_layer_nums":1,
+        "__con_hidden_size_range": [64, 256],
+        "con_hidden_units_size":[64],
+        "general_hidden_units_size":[64,32]
+
     }
 }

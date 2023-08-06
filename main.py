@@ -1,17 +1,18 @@
 from models.PL_resnet import * 
 from models.PL_MMD_AAE import *
 from models.PL_ConDG import *
-import torch._inductor.config as torch_config
+from models.PL_rand_con import *
+# import torch._inductor.config as torch_config
 import json, shutil
-from models.utils import convert_layers
+from models.utils import convert_bn_layers, convert_relu_layers
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.callbacks import LearningRateMonitor, StochasticWeightAveraging
-from pytorch_lightning.loggers import TensorBoardLogger
+# from pytorch_lightning.loggers import TensorBoardLogger
 # from pytorch_lightning.strategies import DDPSpawnStrategy
 # from pytorch_lightning.tuner import Tuner
 import optuna
 from optuna.integration import PyTorchLightningPruningCallback
-from data_module import DeviceFingerpringDataModule
+from data_module import DeviceFingerpringDataModule, VLCSDataModule
 
 def objective(trial: optuna.trial.Trial) -> float:
     if len(sys.argv) > 1:
@@ -38,48 +39,56 @@ def objective(trial: optuna.trial.Trial) -> float:
         
     if config['model']['name'] == "ConDG":
         general_n_layers = config['model'].get('general_layer_nums')
-        if general_n_layers:
+        if general_n_layers and "general_hidden_units_size" not in config['model'].keys():
             config['model']['general_hidden_units_size'] = [
                 trial.suggest_int(f"general_layers_units_l{i+1}", config['model']['general_hidden_size_range'][0],
                                 config['model']['general_hidden_size_range'][1], log=True) for i in range(general_n_layers)
             ]  
         
         con_n_layers = config['model'].get('con_layer_nums')
-        if con_n_layers:
+        if con_n_layers and "con_hidden_units_size" not in config['model'].keys() :
             config['model']['con_hidden_units_size'] = [
                 trial.suggest_int(f"con_layers_units_l{i+1}", config['model']['con_hidden_size_range'][0],
                                 config['model']['con_hidden_size_range'][1], log=True) for i in range(con_n_layers)
             ]  
-            
-        if config['experiment']['discrepency_metric'] == "MMD":
-            low,high = config['experiment']['MMD_sample_size']
-            config['experiment']['MMD_sample_size'] = trial.suggest_int("MMD_sample_size", low, high, log=True)  
+      
         
     config['use_pretrained'] = "pretrain" in  exp_name
     print("Using pretrained mode: ", config['use_pretrained'], "\n")
     
-    datamodule = DeviceFingerpringDataModule(config = config)
+    if config['dataset'].get('img'):
+        if config['dataset']['name'] == "VLCS":
+            datamodule = VLCSDataModule(config=config)
+    else:
+        datamodule = DeviceFingerpringDataModule(config = config)
     # Init our model
-    if config['model']['name'] == 'resnet18':
+    if config['model']['name'] in ['resnet18', "resnet50"] :
         model = Baseline_Resnet(config)
-    if config['model']['name'] == 'MMD_AAE':
+    elif config['model']['name'] == 'MMD_AAE':
         model = MMD_AAE(config)  
-    if config['model']['name'] == 'ConDG':
+    elif config['model']['name'] == 'ConDG':
         model = ConDG(config, datamodule)      
-      
+    elif config['model']['name'] == 'RandConv':
+        model = RandConv(config)  
+        
     if config['experiment'].get("group_norm"):
         print("doing gn! \n\n\n")
         num_groups = config['experiment']['num_groups']
-        model = convert_layers(model, torch.nn.BatchNorm2d, torch.nn.GroupNorm, num_groups = num_groups)
+        model = convert_bn_layers(model, torch.nn.BatchNorm1d, torch.nn.GroupNorm, num_groups = num_groups)      
+    if config['experiment'].get("tanh"):
+        print("doing tanh! \n\n\n")
+        model = convert_relu_layers(model, torch.nn.ReLU, torch.nn.Tanh) 
+    
     '''callbacks'''
-    checkpoint_callback = PL.callbacks.ModelCheckpoint(monitor="val/loss", mode="min", save_last=False, save_weights_only=False)
+    checkpoint_callback = PL.callbacks.ModelCheckpoint(monitor="val/loss", mode="min", save_last=False, save_weights_only=True)
     lr_monitor_callback = LearningRateMonitor(logging_interval='epoch')
     callbacks = [checkpoint_callback, lr_monitor_callback]
     # if "resnet" in exp_name:
-    should_early_stop = config['experiment'].get('adv_coeff') is None or config['experiment'].get('adv_coeff') == 0
+    # should_early_stop = config['experiment'].get('adv_coeff') is None or config['experiment'].get('adv_coeff') == 0
+    should_early_stop = "resnet" in exp_name or "rand" in exp_name
     if should_early_stop:
         # print("should early stop!!!\n\n\n")
-        early_stop_callback = EarlyStopping(monitor="val/loss", mode="min", patience=10)
+        early_stop_callback = EarlyStopping(monitor="val/loss", mode="min", patience=15)
         prune_callback = PyTorchLightningPruningCallback(trial, monitor="val/acc")
         callbacks.append(early_stop_callback)
         callbacks.append(prune_callback)
@@ -104,8 +113,8 @@ def objective(trial: optuna.trial.Trial) -> float:
          #    early_stop_callback, 
                 #    prune_callback
     trainer = PL.Trainer(
-        accelerator="gpu",
-        devices=1,
+        # accelerator="gpu",
+        # devices=1,
         # devices=torch.cuda.device_count(),
         # strategy = strategy,
         max_epochs = max_epoch,
@@ -114,7 +123,7 @@ def objective(trial: optuna.trial.Trial) -> float:
         callbacks=callbacks,
         # reload_dataloaders_every_n_epochs=1,
         # log_every_n_steps=40
-        # profiler="advanced",
+        # profiler="simple",
     )
 
     hyperparameters = config
@@ -122,10 +131,13 @@ def objective(trial: optuna.trial.Trial) -> float:
     # Train the model ⚡
     trainer.fit(model, datamodule=datamodule)
     # if "resnet" in exp_name:
-    if should_early_stop == 0:
+    if should_early_stop:
         prune_callback.check_pruned()
-    trainer.test(ckpt_path='best', datamodule=datamodule )  
-    return trainer.callback_metrics["test/acc"].item()
+    if config['dataset'].get('img'):    
+        return model.best_val_acc   
+    else: 
+        trainer.test(ckpt_path='best', datamodule=datamodule )  
+        return trainer.callback_metrics["test/acc"].item()
 
 def get_config(exp_name):
     config_file_path = f'/root/configs_optuna/'+ exp_name + '.json'
@@ -175,6 +187,7 @@ def delete_bad_ckpt_callback(study, trial):
         
                                
 if __name__ == "__main__":
+    os.environ['CUDA_VISIBLE_DEVICES'] = '1'
     os.system('nvidia-smi -L')
     print("cpu count: ", os.cpu_count())
     torch.set_float32_matmul_precision("medium")
@@ -185,22 +198,28 @@ if __name__ == "__main__":
     random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-
+    # os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
+    # torch.use_deterministic_algorithms(True)
+    
     if len(sys.argv) > 1:
         exp_name = sys.argv[1]
 
     print("Running Experiment: ", exp_name)
     config = get_config(exp_name)
 
-    should_early_stop = config['experiment'].get('adv_coeff') is None or config['experiment'].get('adv_coeff') == 0            
+    # should_early_stop = config['experiment'].get('adv_coeff') is None or config['experiment'].get('adv_coeff') == 0            
+    should_early_stop = "resnet" in exp_name or "rand" in exp_name
     pruner = optuna.pruners.MedianPruner(n_warmup_steps=12,interval_steps=2) if should_early_stop \
                 else optuna.pruners.NopPruner() 
         
    
-    storage='postgresql+psycopg2://testUser:testPassword@10.244.244.151:5432/testDB'
+    storage='postgresql+psycopg2://testUser:testPassword@10.244.98.130:5432/testDB'
     print("creating a new study")
     if  len(sys.argv) > 2:
-        study_name = "dev"  
+        if config['dataset'].get('img'):
+            study_name = "dev_2d"
+        else:
+            study_name = "dev"  
     # elif 'resnet' in exp_name:
     #     study_name = exp_name  
     else:

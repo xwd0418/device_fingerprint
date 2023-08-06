@@ -71,7 +71,7 @@ class MMD_loss(nn.Module):
         self.MMD_sample_size = MMD_sample_size
         return
 
-    def guassian_kernel(self, source, target, kernel_mul=2.0, kernel_num=5, fix_sigma=None):
+    def guassian_kernel(self, source, target, kernel_mul, kernel_num, fix_sigma):
         n_samples = int(source.size()[0])+int(target.size()[0])
         total = torch.cat([source, target], dim=0)
 

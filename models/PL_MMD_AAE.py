@@ -10,23 +10,27 @@ class MMD_AAE(Baseline_Resnet):
         super().__init__(config)
         self.feat_accuracy = Accuracy( task = 'binary')
         self.prior_accuracy = Accuracy( task = 'binary')
-        self.on_step = True
+        self.on_step = False
+        self.last_batch_domain_accu = 0.0
 
         
         self.automatic_optimization = self.config['experiment'].get('single_optimizer') is not False
         if self.config['experiment']['recontruct_coeff']:
-            self.decoder =  Decoder(256, 2, self.config['model']['linear'])
+            in_channel, out_channel = (2048, 3) if self.config['dataset'].get('img') else (256,2)
+            self.decoder =  Decoder(in_channel, out_channel, self.config['model']['linear'],
+                                    twoD=config['dataset'].get('img'))
             self.reconstruct_criterion= nn.MSELoss()
         
         if self.config['experiment']['adv_coeff']:
             if not config['model'].get('hidden_units_size'):
                 config['model']['hidden_units_size'] = [ config['model']['adv_hidden_size_range'] ]
-            self.discriminator = Discriminator(in_feature=512*8, 
+            in_feature = 2048 if self.config['dataset'].get('img') else 512*8
+            self.discriminator = Discriminator(in_feature=in_feature, 
                                             hidden_units_size=config['model']['hidden_units_size']
                                             )
             self.adv_criterion = DALoss()
-        if self.config['experiment']['MMD_coeff']:
-            self.mmd_loss = MMD_loss(MMD_sample_size=config['experiment']['MMD_sample_size'])
+        if self.config['experiment']['MMD_coeff']:            
+                self.mmd_loss = MMD_loss(**config['experiment']['MMD_kwargs'])
         
         
         self.load_pretrained()
@@ -122,18 +126,27 @@ class MMD_AAE(Baseline_Resnet):
             
         
         if self.config['experiment']['adv_coeff']:
-            rgl_coeff = self.calc_coeff(self.global_step, kick_in_iter = self.config["experiment"]["rgl_kick_in_position"]//self.config['dataset']["batch_size"])
-            if type(self.config['experiment']['loss_kick_in_position']) is int :
-                loss_coeff = self.calc_coeff(self.global_step, kick_in_iter = self.config["experiment"]["loss_kick_in_position"]//self.config['dataset']["batch_size"])
+            loss_coeff = self.calc_coeff(self.global_step, kick_in_iter = self.config["experiment"]["loss_kick_in_position"]//self.config['dataset']["batch_size"])
+            # rgl_coeff = accu/(1-accu)
+            max_rgl_coeff = self.config['experiment'].get('max_rgl_coeff')
+            if max_rgl_coeff is None:
+                max_rgl_coeff = 5
+            rgl_coeff = max_rgl_coeff ** self.last_batch_domain_accu
+            """
+            10 is a hand-picked number. It means when accuracy is 10%, the coeff will be 1, 
+            which means that accuracy will bs 
+            """
+
+            if self.config['dataset'].get('img'):
+                feat = self.encoder.pooled_feature.view(len(feature), -1)
             else:
-                loss_coeff = rgl_coeff * self.config['experiment']['loss_kick_in_position']
-            feat = feature.view(len(feature), -1)
+                feat = feature.view(len(feature), -1)
             prior_feat = self.get_prior_feat(shape = feat.shape)
             prior_feat = prior_feat.to(feat)
             feature_together = torch.cat([feat, prior_feat], dim=0)
             # label : real_feat->1, prior_feat->0
             domain_prediction = self.discriminator(feature_together, rgl_coeff)
-            self.feat_accuracy(torch.nn.Sigmoid()(domain_prediction.view(-1)[0:len(feat)]), torch.ones(len(feat)).to(feat))
+            self.last_batch_domain_accu = self.feat_accuracy(torch.nn.Sigmoid()(domain_prediction.view(-1)[0:len(feat)]), torch.ones(len(feat)).to(feat))
             self.prior_accuracy(torch.nn.Sigmoid()(domain_prediction.view(-1)[len(feat):]), torch.zeros(len(feat)).to(feat))
             adv_loss = self.adv_criterion(domain_prediction, loss_coeff)
             loss += self.config['experiment']['adv_coeff']*adv_loss
@@ -144,12 +157,12 @@ class MMD_AAE(Baseline_Resnet):
                      on_step = self.on_step, on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)
             self.log("train/adv_loss", adv_loss, on_step = self.on_step,
                      on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)
-            # self.log("train/domain_accu", self.feat_accuracy, on_step = self.on_step,
-            #          on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)
+            self.log("train/domain_accu", self.feat_accuracy, on_step = self.on_step,
+                     on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)
             # self.log("train/prior_accu", self.prior_accuracy, on_step = self.on_step,
             #          on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)
-            # self.log("train/iter_coeff", rgl_coeff, on_step = self.on_step,
-            #          on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)
+            self.log("train/hook_coeff", rgl_coeff, on_step = self.on_step,
+                     on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)
             
             if not self.automatic_optimization:
                 adv_opt,adv_sch = next(optimizers_retriver)
@@ -229,6 +242,7 @@ class MMD_AAE(Baseline_Resnet):
         return optimizer_list,scheduler_list
     
     def on_train_epoch_end(self):   
+        super().on_train_epoch_end()
         if not self.automatic_optimization:
             sch_retriver = self.give_sch()       
             fe_sch = next(sch_retriver)
