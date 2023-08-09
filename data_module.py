@@ -114,7 +114,7 @@ class VLCSDataModule(pl.LightningDataModule):
         super().__init__()
         # self.data_from_pickle = data_from_pickle
         self.config = config
-        self.loader_num_worker = 8
+        self.loader_num_worker = min(os.cpu_count(),64)
         self.batch_size = int(config['dataset']['batch_size']) // 3
         self.V_data = ImageDataset("VOC2007", 0)
         self.L_data = ImageDataset("LabelMe", 1)
@@ -132,27 +132,28 @@ class VLCSDataModule(pl.LightningDataModule):
             pin_memory=True,
             shuffle=True,
             num_workers=self.loader_num_worker,
-            # persistent_workers=True
+            persistent_workers=True
         )
         
     def val_dataloader(self):
         return DataLoader(self.S_data, 
                           batch_size=self.batch_size * 3, 
                           num_workers=self.loader_num_worker,
-                        #   persistent_workers=True
+                          persistent_workers=True,
+                          pin_memory=True,
                           )
 
         
         
 class ImageDataset(torch.utils.data.Dataset):
-    def __init__(self, name, domain_label):
+    def __init__(self, name, domain_label, verbose=False):
         classes = sorted(glob(f"/root/dataset/VLCS/{name}/*/"))
         self.all_items = []
         self.label_distribution = torch.zeros(5) 
         for class_label, class_path in enumerate(classes):
             print(class_path)
             all_paths = glob(f"{class_path}*")
-            self.all_items += [ (all_paths[i], class_label, domain_label) for i in range(len(all_paths))] [0:3]
+            self.all_items += [ (all_paths[i], class_label, domain_label) for i in range(len(all_paths))] 
             # for img_path in  all_paths:
             #     img = cv2.imread(img_path)
             #     img = cv2.resize(img, (224,224), interpolation = cv2.INTER_AREA)
@@ -161,13 +162,17 @@ class ImageDataset(torch.utils.data.Dataset):
             #     self.all_items.append((img, class_label, domain_label))
             self.label_distribution[class_label] = len(all_paths)
         random.shuffle(self.all_items)
-     
+        # self.get_num = 0
+        # self.verbose = verbose
     def __getitem__(self, i):
         item = self.all_items[i]
         img = cv2.imread(item[0])
         img = cv2.resize(img, (224,224), interpolation = cv2.INTER_AREA)
         img = np.transpose(img, (2, 0, 1))
         img = torch.from_numpy(img).float()
+        # if self.verbose:
+        #     print(i)
+        #     self.get_num+=1
         return img, item[1], item[2]
      
     def __len__(self):

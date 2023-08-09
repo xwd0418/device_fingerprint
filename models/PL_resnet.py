@@ -69,8 +69,11 @@ class Baseline_Resnet(PL.LightningModule):
         self.val_accuracy(preds, y)
         self.log("val/loss", loss, prog_bar=False, sync_dist=True)
         self.log("val/acc", self.val_accuracy, prog_bar=True, sync_dist=True)
+    
+    def on_validation_epoch_end(self) -> None:
         if self.val_accuracy.compute() > self.best_val_acc :
             self.best_val_acc  =  self.val_accuracy.compute()
+        super().on_validation_epoch_end() 
         
     def test_step(self, batch, batch_idx):
         x, y = self.unpack_batch(batch, single_domain_loader=True)

@@ -113,7 +113,7 @@ def objective(trial: optuna.trial.Trial) -> float:
          #    early_stop_callback, 
                 #    prune_callback
     trainer = PL.Trainer(
-        # accelerator="gpu",
+        accelerator="gpu",
         # devices=1,
         # devices=torch.cuda.device_count(),
         # strategy = strategy,
@@ -170,7 +170,7 @@ def sample_config(trial, config):
                     else:
                         assert(v[-1].split("=")[0]=="step")
                         step = float(v[-1].split("=")[1])
-                # print(f'{k}\n\n')
+                # print(f'{k} , {v}\n\n')
                 config[k] = trial.suggest_float(k, v[1], v[2], log=log, step=step)
                 
 
@@ -187,7 +187,7 @@ def delete_bad_ckpt_callback(study, trial):
         
                                
 if __name__ == "__main__":
-    os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+    # os.environ['CUDA_VISIBLE_DEVICES'] = '1'
     os.system('nvidia-smi -L')
     print("cpu count: ", os.cpu_count())
     torch.set_float32_matmul_precision("medium")
@@ -213,7 +213,7 @@ if __name__ == "__main__":
                 else optuna.pruners.NopPruner() 
         
    
-    storage='postgresql+psycopg2://testUser:testPassword@10.244.98.130:5432/testDB'
+    storage='postgresql+psycopg2://testUser:testPassword@10.244.84.190:5432/testDB'
     print("creating a new study")
     if  len(sys.argv) > 2:
         if config['dataset'].get('img'):
@@ -231,7 +231,7 @@ if __name__ == "__main__":
         pruner=pruner,
         load_if_exists=True, 
     )
-    study.optimize(objective, n_trials=200, callbacks=[delete_bad_ckpt_callback])
+    study.optimize(objective, n_trials=100, callbacks=[delete_bad_ckpt_callback])
     
 
     print("Number of finished trials: {}".format(len(study.trials)))
@@ -244,3 +244,4 @@ if __name__ == "__main__":
     print("  Params: ")
     for key, value in trial.params.items():
         print("    {}: {}".format(key, value))
+
