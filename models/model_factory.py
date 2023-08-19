@@ -38,7 +38,8 @@ class Up(nn.Module):
 
         # if bilinear, use the normal convolutions to reduce the number of channels
         if linear:
-            self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+            mode='linear' if oneD else "bilinear"
+            self.up = nn.Upsample(scale_factor=2, mode=mode, align_corners=True)
             self.conv = DoubleConv(in_channels, out_channels, in_channels // 2, oneD=oneD) 
                 
         else:
@@ -109,13 +110,13 @@ class Discriminator(nn.Module):
     return y
 
 class AdvMLPClassifier(nn.Module):
-    def __init__(self, in_feat_size, out_class, hidden_units_size, 
-                 CE_reduction='none', label_distribution=None, class_conditional=True):
+    def __init__(self, in_feat_size, out_class, hidden_units_size, num_classes,
+                 CE_reduction='none', label_distribution=None, class_conditional=True,):
         super(AdvMLPClassifier, self).__init__()
         self.classfier = MLP(in_feat_size, hidden_units_size+[out_class])
         self.loss = torch.nn.CrossEntropyLoss(reduction=CE_reduction)
         self.class_conditional = class_conditional
-        self.L=150
+        self.L = num_classes
         self.label_distribution = label_distribution
         self.domain_distribution = torch.sum(label_distribution, dim=1)
         self.total_size = torch.sum(self.domain_distribution)

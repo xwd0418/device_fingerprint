@@ -3,7 +3,7 @@ from models.model_factory import *
 from models.loss_module.MMD import MMD_loss
 from models.loss_module.domain_adv_loss import DALoss
 from torchmetrics import Accuracy
-
+from models.loss_module.utils import compute_discrepency
 
 class MMD_AAE(Baseline_Resnet):
     def __init__(self, config):
@@ -16,7 +16,7 @@ class MMD_AAE(Baseline_Resnet):
         
         self.automatic_optimization = self.config['experiment'].get('single_optimizer') is not False
         if self.config['experiment']['recontruct_coeff']:
-            in_channel, out_channel = (2048, 3) if self.config['dataset'].get('img') else (256,2)
+            in_channel, out_channel = (2048, 3) if self.config['dataset'].get('img') else (512,2)
             self.decoder =  Decoder(in_channel, out_channel, self.config['model']['linear'],
                                     twoD=config['dataset'].get('img'))
             self.reconstruct_criterion= nn.MSELoss()
@@ -63,8 +63,7 @@ class MMD_AAE(Baseline_Resnet):
             optimizers_retriver = self.give_opt_and_sch()
             fe_opt, fe_sch = next(optimizers_retriver)
             fe_opt.zero_grad()
-            # self.manual_backward(loss, retain_graph= True)
-            self.manual_backward(mmd1+mmd2+mmd3)
+            self.manual_backward(loss, retain_graph= True)
             # self.log("train/total_loss",loss, prog_bar=True, on_step = self.on_step,
             #              on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1 )
             
@@ -77,20 +76,15 @@ class MMD_AAE(Baseline_Resnet):
         
         
         if self.config['experiment']['MMD_coeff']:
-            idx1, idx2, idx3 = date==0, date==1, date==2
-            
-            feat1, feat2, feat3 = feature[idx1], feature[idx2], feature[idx3]
-            feat1, feat2, feat3 = feat1.view(len(feat1), -1), feat2.view(len(feat2), -1), feat3.view(len(feat3), -1)
-            assert (len(feat1)+len(feat2)+len(feat3)==len(feature))
-            mmd1, mmd2, mmd3 = self.mmd_loss(feat1,feat2),self.mmd_loss(feat1,feat3),self.mmd_loss(feat2,feat3),
-            loss +=  self.config['experiment']['MMD_coeff']*(mmd1+mmd2+mmd3)
-            self.log("train/mmd", mmd1+mmd2+mmd3, prog_bar=True, on_step = self.on_step,
+            total_mmd = compute_discrepency(self.mmd_loss, feature, date, len(batch))
+            loss +=  self.config['experiment']['MMD_coeff']*(total_mmd)
+            self.log("train/mmd", total_mmd, prog_bar=True, on_step = self.on_step,
                      on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1 )
         
             if not self.automatic_optimization:
                 mmd_opt, mmd_sch = next(optimizers_retriver)
                 mmd_opt.zero_grad()
-                self.manual_backward(mmd1, mmd2, mmd3,
+                self.manual_backward(total_mmd,
                         retain_graph= self.config['experiment']['recontruct_coeff']>0 or self.config['experiment']['adv_coeff']>0
                         )
                 mmd_opt.step()

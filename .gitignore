@@ -18,7 +18,11 @@ simple_main.py
 .*
 !.gitignore
 *.csv
+*.png
+inspect*
 trial_id.py
 pytorch2/
 data/
 ckpts/
+checkpoints/
+models/PL_dummy.py

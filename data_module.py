@@ -12,9 +12,10 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
         super().__init__()
         self.data_from_pickle = data_from_pickle
         self.config = config
-        self.loader_num_worker = os.cpu_count()
+        self.loader_num_worker = 8#os.cpu_count()//4
         self.parepare_dataset()
-        self.batch_size = int(config['dataset']['batch_size']) // 3
+        num_source_domains = 3 if self.config['dataset'].get('old_split') else 2
+        self.batch_size = int(config['dataset']['batch_size']) // num_source_domains
         # self.setup()
 
         
@@ -28,10 +29,17 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
         print("pickle file loaded")
         self.domained_data = [],[],[],[]
         self.label_distribution = torch.zeros((len(self.domained_data),len(data))) 
+        # print("total length: ", len(data))
         for label in range(len(data)):
+            if True and label == 20:
+                break
             for i in data[label]:
                 for date, j in enumerate(i):
                     for k in j[1]:
+                        if self.config['dataset'].get('normalize'):
+                            mean, std = k.mean(axis=0), k.std(axis=0)
+                            k = (k-mean)/std
+                            # print(k.mean(0))
                         self.domained_data[date].append((k.T.astype("float32"),label, date)) 
                         self.label_distribution[date,label]+=1
                 if self.config['dataset'].get('single_receiver') :
@@ -61,24 +69,25 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
         return DataLoader(
             ConcatDataset(self.df_data_train),
             batch_size=self.batch_size,
-            pin_memory=True,
             shuffle=True,
+            # pin_memory=True,
+            persistent_workers=True,
             num_workers=self.loader_num_worker,
-            # persistent_workers=True
         )
 
 
     def val_dataloader(self):
         return DataLoader(self.df_data_val, 
-                          batch_size=128, 
+                          batch_size=512, 
                           num_workers=self.loader_num_worker,
-                        #   persistent_workers=True
+                        #   pin_memory=True,
+                          persistent_workers=True
                           )
 
     def test_dataloader(self):
         return DataLoader(self.df_data_test, 
-                          batch_size=128, 
-                        #   num_workers=self.loader_num_worker,
+                          batch_size=512, 
+                          num_workers=self.loader_num_worker,
                         #   persistent_workers=True
                           )
     
@@ -96,25 +105,33 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
     #         self.df_data_test = self.domained_data[3]
      
     def setup(self, stage = None):
-        val_size = len(self.domained_data[3])//2
-        if stage == "fit":
-            print("spllitting train, val, test, should happen only once")  
-            self.df_data_train = [self.domained_data[i] for i in range(3)]
-            self.df_data_val = self.domained_data[3][:val_size]
-            # for i in range(3):
-            #     t,v = random_split(self.domained_data[i], [len(self.domained_data[i])-val_num,val_num])
-            #     self.df_data_train.append(t)
-            #     self.df_data_val.append(v)
-            
-        if stage == "test":    
-            self.df_data_test = self.domained_data[3][val_size:]
-   
+        # print("do a set up")
+        if self.config['dataset'].get('old_split'):  
+            # 3 + 0.5 + 0.5
+            val_size = len(self.domained_data[3])//2
+            if stage == "fit":
+                # print("spllitting train, val, test, should happen only once")
+                self.df_data_train = [self.domained_data[i] for i in range(3)]
+                self.df_data_val = self.domained_data[3][:val_size]
+            if stage == "test":    
+                self.df_data_test = self.domained_data[3][val_size:]
+                
+        else: 
+            # 2 + 1 + 1 
+            if stage == "fit":
+                self.df_data_train = [self.domained_data[i] for i in range(2)]
+                self.df_data_val = self.domained_data[2]
+            if stage == "test":  
+                self.df_data_test = self.domained_data[3]
+                
+
 class VLCSDataModule(pl.LightningDataModule):
     def __init__(self, config):
         super().__init__()
         # self.data_from_pickle = data_from_pickle
         self.config = config
-        self.loader_num_worker = min(os.cpu_count(),64)
+        # self.loader_num_worker = min(os.cpu_count(),64)
+        self.loader_num_worker = 16
         self.batch_size = int(config['dataset']['batch_size']) // 3
         self.V_data = ImageDataset("VOC2007", 0)
         self.L_data = ImageDataset("LabelMe", 1)

@@ -1,4 +1,4 @@
-import os,sys
+import os,sys, time
 from glob import glob
 import pickle
 import torch, copy
@@ -34,12 +34,15 @@ class Baseline_Resnet(PL.LightningModule):
         x = self.encoder(x, feat=feat)
         return x
 
-    # def on_train_epoch_start(self) -> None:
-    #     super().on_train_epoch_start()
-    #     # random.shuffle(self.trainer.datamodule.df_data_train[0])
-    #     for d in self.trainer.datamodule.df_data_train:
-    #         random.shuffle(d)
-    #     print("traing loader is shuffled")
+    def on_train_epoch_start(self) -> None:
+        # time1 = time.time()
+        super().on_train_epoch_start()
+        # time2= time.time()
+        # print("on_train_epoch_start: ", time2-time1)
+        # # random.shuffle(self.trainer.datamodule.df_data_train[0])
+        # for d in self.trainer.datamodule.df_data_train:
+        #     random.shuffle(d)
+        # print("traing loader is shuffled")
 
     
     def training_step(self, batch, batch_idx):
@@ -67,13 +70,16 @@ class Baseline_Resnet(PL.LightningModule):
         loss = self.criterion(logits, y)
         preds = torch.argmax(logits, dim=1)
         self.val_accuracy(preds, y)
-        self.log("val/loss", loss, prog_bar=False, sync_dist=True)
-        self.log("val/acc", self.val_accuracy, prog_bar=True, sync_dist=True)
-    
+        self.log("val/loss", loss, prog_bar=False, sync_dist=torch.cuda.device_count()>1)
+        self.log("val/acc", self.val_accuracy, prog_bar=True, sync_dist=torch.cuda.device_count()>1)
+        
     def on_validation_epoch_end(self) -> None:
+        # time1 = time.time()
         if self.val_accuracy.compute() > self.best_val_acc :
             self.best_val_acc  =  self.val_accuracy.compute()
         super().on_validation_epoch_end() 
+        # time2= time.time()
+        # print("on_validation_epoch_end: ", time2-time1)
         
     def test_step(self, batch, batch_idx):
         x, y = self.unpack_batch(batch, single_domain_loader=True)
@@ -83,8 +89,8 @@ class Baseline_Resnet(PL.LightningModule):
         self.test_accuracy(preds, y)
 
         # Calling self.log will surface up scalars for you in TensorBoard
-        self.log("test/loss", loss, prog_bar=False, sync_dist=True)
-        self.log("test/acc", self.test_accuracy, prog_bar=True, sync_dist=True)
+        self.log("test/loss", loss, prog_bar=False, sync_dist=torch.cuda.device_count()>1)
+        self.log("test/acc", self.test_accuracy, prog_bar=True, sync_dist=torch.cuda.device_count()>1)
         # return self.test_accuracy.compute()
         # return 0
       
@@ -132,8 +138,10 @@ class Baseline_Resnet(PL.LightningModule):
             return torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', **kwargs)
         if sch_config['type'] == "CyclicLR":
             return torch.optim.lr_scheduler.CyclicLR(optimizer,
-                    cycle_momentum=self.config['experiment']['optimizer']!="Adam",**kwargs)
-
+                    cycle_momentum=self.config['experiment']['optimizer']!="Adam",)
+        if sch_config['type'] == "CosineAnnealingLR":
+            # print("CosineAnnealingLR ! \n\n")
+            return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,**kwargs)
         
     def get_model(self):
         if self.config['dataset'].get('img'):

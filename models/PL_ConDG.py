@@ -3,30 +3,37 @@ from models.model_factory import *
 from models.loss_module.MMD import MMD_loss
 from models.loss_module.JSD import JSD
 import math
+from models.loss_module.utils import compute_discrepency
+
 
 class ConDG(Baseline_Resnet):
     def __init__(self, config,datamodule):
         super().__init__(config)
         # self.automatic_optimization = False
 
-        self.num_classes = 150
-        self.num_domains = 4-1
+        
+        self.num_classes = 5 if config['dataset'].get('img') else 150 
+        self.num_domains = 3 if self.config['dataset'].get('old_split') or config['dataset'].get('img') else 2
+        
         self.on_step = False
         self.last_batch_general_domain_accu = 0.0
         self.general_domain_accu = Accuracy( task="multiclass", num_classes=self.num_domains)
-        self.JSD = JSD()
+        if config['experiment']['discrepency_metric'] == "JSD":    
+            self.discrepency_loss_func = JSD()
         # self.set_adv_coeffs()
-        if config['experiment']['discrepency_metric'] == "MMD":
-            self.mmd_loss = MMD_loss(**config['experiment']['MMD_kwargs'])
+        elif config['experiment']['discrepency_metric'] == "MMD":
+            self.discrepency_loss_func = MMD_loss(**config['experiment']['MMD_kwargs'])
         
         self.label_distribution = datamodule.label_distribution
      
+        adv_in_feat_size = 2048 if  self.config['dataset'].get('img') else 512*8
         if self.config['experiment']['con_domain_coeff']:
             for i in range(self.num_classes):
                 setattr(self, f'conditional_classifier_{i}' , 
                                     AdvMLPClassifier(
-                                        in_feat_size=512*8, out_class=self.num_domains, 
+                                        in_feat_size=adv_in_feat_size, out_class=self.num_domains, 
                                         hidden_units_size=self.config['model']['con_hidden_units_size'],
+                                        num_classes = self.num_classes,
                                         label_distribution=self.label_distribution,
                                         class_conditional=True
                                     ) 
@@ -35,8 +42,9 @@ class ConDG(Baseline_Resnet):
                 setattr(self, f"con_accuracy_{i}",  Accuracy( task="multiclass", num_classes=self.num_domains))
         if self.config['experiment']['weighted_domain_coeff'] :        
             self.general_domain_classifier = AdvMLPClassifier(
-                                in_feat_size=512*8, out_class=self.num_domains,
+                                in_feat_size=adv_in_feat_size, out_class=self.num_domains,
                                 hidden_units_size=self.config['model']['general_hidden_units_size'], 
+                                num_classes = self.num_classes,
                                 label_distribution=self.label_distribution,
                                 class_conditional = False
                                 ) # using default reductioon mean 
@@ -55,6 +63,9 @@ class ConDG(Baseline_Resnet):
         self.log("train/cls_loss", loss,  prog_bar=False, on_epoch=self.train_log_on_epoch, on_step=self.on_step, sync_dist=torch.cuda.device_count()>1)
         self.log("train/acc", self.train_accuracy, prog_bar=True, on_epoch=self.train_log_on_epoch, on_step=self.on_step, sync_dist=torch.cuda.device_count()>1)
 
+        
+        if self.config['dataset'].get('img'):
+            feature = self.encoder.pooled_feature.view(len(feature), -1)
         # conditional domain classifier
         if self.config['experiment']['con_domain_coeff']: 
             con_domain_loss = 0           
@@ -62,6 +73,7 @@ class ConDG(Baseline_Resnet):
                 idx = y==class_idx
                 if torch.any(idx):
                     class_feat, class_y, class_date = feature[idx], y[idx], date[idx]
+                    
                     curr_classifier = getattr(self, f'conditional_classifier_{class_idx}')
                     curr_con_coeff = getattr(self, f'con_rgl_coeff_{class_idx}')
                     con_pred_logits, single_class_loss = curr_classifier(class_feat, class_y, class_date,
@@ -78,7 +90,8 @@ class ConDG(Baseline_Resnet):
                         on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1 )
             avg_con_accuracy = sum([getattr(self,f"last_batch_con_domain_accu_{i}") for i in range (self.num_classes)])/self.num_classes
             
-            self.log("train/con_domain_acc", avg_con_accuracy, prog_bar=True, on_step=self.on_step, on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)
+            self.log("train/con_domain_acc", avg_con_accuracy, prog_bar=True, on_step=self.on_step, 
+                     on_epoch=self.train_log_on_epoch, sync_dist=torch.cuda.device_count()>1)
 
             avg_hook_coeff = sum([getattr(self,f'con_rgl_coeff_{i}') for i in range (self.num_classes)])/self.num_classes
             self.log("train/hook_coeff", avg_hook_coeff, on_step=self.on_step,
@@ -107,8 +120,8 @@ class ConDG(Baseline_Resnet):
             for i in range(self.num_domains):
                 date_idx = date==i
                 weighted_pred_logits , weighted_domain_loss = self.general_domain_classifier(feature[date_idx], y[date_idx], date[date_idx],
-                                                                        # hook_coeff = self.general_rgl_coeff, loss_coeff=self.general_loss_coeff
-                                                                        hook_coeff = 0.5, loss_coeff = 1.0
+                                                                        hook_coeff = self.general_rgl_coeff, loss_coeff=self.general_loss_coeff
+                                                                        # hook_coeff = 0.5, loss_coeff = 1.0
                                                                                              ) 
                 accu = self.single_domain_accus[i].to(feature)(torch.argmax(weighted_pred_logits, dim=1), date[date_idx])
                 general_domain_loss += weighted_domain_loss
@@ -131,22 +144,8 @@ class ConDG(Baseline_Resnet):
 
 
         discrepency_loss = None
-        if self.config['experiment'].get('discrepency_metric') == "MMD":
-            idx1, idx2, idx3 = date==0, date==1, date==2            
-            feat1, feat2, feat3 = feature[idx1], feature[idx2], feature[idx3]
-            feat1, feat2, feat3 = feat1.view(len(feat1), -1), feat2.view(len(feat2), -1), feat3.view(len(feat3), -1)
-            assert (len(feat1)+len(feat2)+len(feat3)==len(feature))
-            mmd1, mmd2, mmd3 = self.mmd_loss(feat1,feat2),self.mmd_loss(feat1,feat3),self.mmd_loss(feat2,feat3),
-            discrepency_loss = mmd1+mmd2+mmd3
-            
-        if self.config['experiment'].get('discrepency_metric')== "JSD":
-            idx1, idx2, idx3 = date==0, date==1, date==2  
-            feat1, feat2, feat3 = feature[idx1], feature[idx2], feature[idx3]
-            feat1, feat2, feat3 = feat1.view(len(feat1), -1), feat2.view(len(feat2), -1), feat3.view(len(feat3), -1)
-            assert (len(feat1)+len(feat2)+len(feat3)==len(feature))
-            JSD1, JSD2, JSD3 = self.JSD(feat1,feat2),self.JSD(feat1,feat3),self.JSD(feat2,feat3),
-            discrepency_loss = JSD1+JSD2+JSD3
-        
+        if self.config['experiment'].get('discrepency_metric') :
+            discrepency_loss = compute_discrepency(self.discrepency_loss_func, feature, date, len(batch))
         if  discrepency_loss is not None:   
             loss +=  self.config['experiment']['discrepency_coeff']*discrepency_loss
             self.log("train/discrepency_loss", discrepency_loss, on_step=self.on_step,
