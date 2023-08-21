@@ -1,3 +1,7 @@
+"""a few bugs in this model
+1. block needs a good normalizations (right now is doing a random conv, which is kinda dumb )
+2. need to initilize conv weights each time bruhhhh """
+
 from models.PL_resnet import *
 from models.model_factory import *
 import torchvision
@@ -34,7 +38,7 @@ class RandConv(Baseline_Resnet):
     def training_step(self, batch, batch_idx):
         x, y = self.unpack_batch(batch)
         # print(x.shape, "\n\n\n\n\n")
-        num_reptition = np.random.randint(1, 1+self.config['model']["max_conv_reptitions"]) #  +1 because of exclusiveness on the 2nd parameter 
+        num_reptition = 1 #np.random.randint(1, 1+self.config['model']["max_conv_reptitions"]) #  +1 because of exclusiveness on the 2nd parameter 
         rand_conved_x = self.rand_conv(x,num_reptition)
         # print("rand_conved_x", rand_conved_x.shape, "\n\n\n\n\n")
         
@@ -88,18 +92,21 @@ class RandConv(Baseline_Resnet):
     
     @torch.no_grad()
     def rand_conv(self, x, num_reptition):        
-        # initializa distribution parameters
-        upper_bound_gaussian_smoothing_sigma = self.config['model']['upper_bound_gaussian_smoothing_sigma']
-        sigma_gauss_filter = np.random.uniform(1e-7, upper_bound_gaussian_smoothing_sigma)
-        # initialize random weights 
-        gaussian_filter = fspecial_gauss(self.kernel_size, sigma_gauss_filter, dimension=self.data_dimension)
-        gaussian_filter = torch.from_numpy(gaussian_filter).to(x)
-        self.rand_conv_layer.weight =  torch.nn.Parameter(self.rand_conv_layer.weight * gaussian_filter)
+        # # initializa distribution parameters
+        # upper_bound_gaussian_smoothing_sigma = self.config['model']['upper_bound_gaussian_smoothing_sigma']
+        # sigma_gauss_filter = np.random.uniform(1e-7, upper_bound_gaussian_smoothing_sigma)
+        # # initialize random weights 
+        # gaussian_filter = fspecial_gauss(self.kernel_size, sigma_gauss_filter, dimension=self.data_dimension)
+        # gaussian_filter = torch.from_numpy(gaussian_filter).to(x)
+        # self.rand_conv_layer.weight =  torch.nn.Parameter(self.rand_conv_layer.weight * gaussian_filter)
         
         
         if self.config['model']['conv_type'] == "plain":
             for _ in range(num_reptition):
                 x = self.rand_conv_layer(x)
+            # for number in range(3):
+            #     save_img(x, number, f"inspect_plain_conved_{number}.png", need_long= True)
+            # exit()
         elif self.config['model']['conv_type'] == "block":   
             """   parameter initialize   """  
             # 1. deformable conv offset  
@@ -236,14 +243,14 @@ def fspecial_gauss(size, sigma, dimension):
 
 
 def save_img(x, i, path, need_long=False):
-    # im = x[i].permute(1,2,0).detach().cpu()
-    # if need_long:
-    #     im = im.long()
-    # plt.figure()
-    # plt.imshow(im[:,:,[2,1,0]])
-    # plt.savefig(path)
-    
-    im = x[i,0].detach().cpu()
+    im = x[i].permute(1,2,0).detach().cpu()
+    if need_long:
+        im = im.long()
     plt.figure()
-    plt.plot(im)
+    plt.imshow(im[:,:,[2,1,0]])
     plt.savefig(path)
+    
+    # im = x[i,0].detach().cpu()
+    # plt.figure()
+    # plt.plot(im)
+    # plt.savefig(path)

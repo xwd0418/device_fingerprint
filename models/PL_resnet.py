@@ -96,7 +96,7 @@ class Baseline_Resnet(PL.LightningModule):
       
             
     def unpack_batch(self, batch, need_date=False, single_domain_loader = False):
-        if single_domain_loader:
+        if self.config['dataset'].get('stacked_dataset') or single_domain_loader:
             x,y,date = batch
         else:
             x,y,date = zip(*batch)   

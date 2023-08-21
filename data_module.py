@@ -12,9 +12,11 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
         super().__init__()
         self.data_from_pickle = data_from_pickle
         self.config = config
-        self.loader_num_worker = 8#os.cpu_count()//4
+        self.loader_num_worker = 16#os.cpu_count()//4
         self.parepare_dataset()
         num_source_domains = 3 if self.config['dataset'].get('old_split') else 2
+        if self.config['dataset'].get('stacked_dataset'):
+            num_source_domains = 1
         self.batch_size = int(config['dataset']['batch_size']) // num_source_domains
         # self.setup()
 
@@ -31,7 +33,8 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
         self.label_distribution = torch.zeros((len(self.domained_data),len(data))) 
         # print("total length: ", len(data))
         for label in range(len(data)):
-            if True and label == 20:
+            if self.config['dataset'].get("only_n_receiver") and \
+                    label == self.config['dataset'].get("only_n_receiver"):
                 break
             for i in data[label]:
                 for date, j in enumerate(i):
@@ -47,27 +50,15 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
         print("finished preparing dataloader")
         random.seed(12)
         for i in range(4):
-            random.shuffle(self.domained_data[i])
-        
-    # def parepare_dataset(self) :
-    #     # pickleFile = open("/root/dataset/ManyTx.pkl","rb")
-    #     # all_info = pickle.load(pickleFile)
-    #     # data = all_info['data']
-    #     # data = np.load('/root/dataset/all_receiver_data.npy', allow_pickle=True)
-    #     # print("pickle file loaded")
-    #     self.domained_data = [[], [], [], []]
-    #     loader_mode = "single" if self.config['dataset'].get('single_receiver') \
-    #                     else "all"
-    #     for i in range(4):
-    #         print(f"preparing dataloader in domain_{i}")
-    #         loaded = np.load(f"/root/dataset/{loader_mode}_receiver_domain{i}.npz")
-    #         data, label, date = loaded['data'], loaded['label'], loaded['date']
-    #         self.domained_data[i] = list(zip(data[0], label[0], date[0]))
-    #         print(f"finished domain_{i}")               
+            random.shuffle(self.domained_data[i])              
         
     def train_dataloader(self):
+        if self.config['dataset'].get('stacked_dataset'):
+            dataset = StackedDataset(self.df_data_train)
+        else:
+            dataset = ConcatDataset(self.df_data_train)
         return DataLoader(
-            ConcatDataset(self.df_data_train),
+            dataset,
             batch_size=self.batch_size,
             shuffle=True,
             # pin_memory=True,
@@ -90,19 +81,6 @@ class DeviceFingerpringDataModule(pl.LightningDataModule):
                           num_workers=self.loader_num_worker,
                         #   persistent_workers=True
                           )
-    
-    # def setup(self, stage = None):
-    #     if stage == "fit":
-
-    #         print("spllitting train, val, test, should happen only once")  
-    #         self.df_data_train, self.df_data_val = [],[]
-    #         for i in range(3):
-    #             val_num = len(self.domained_data[i])//10
-    #             t,v = random_split(self.domained_data[i], [len(self.domained_data[i])-val_num,val_num])
-    #             self.df_data_train.append(t)
-    #             self.df_data_val.append(v)
-    #     if stage == "test":    
-    #         self.df_data_test = self.domained_data[3]
      
     def setup(self, stage = None):
         # print("do a set up")
@@ -210,3 +188,17 @@ class ConcatDataset(torch.utils.data.Dataset):
     def __len__(self):
         return min(len(d) for d in self.datasets)                
 
+class StackedDataset(torch.utils.data.Dataset):
+    def __init__(self, datasets):
+        self.dataset = sum(datasets, [])
+
+    def __getitem__(self, i):
+        return self.dataset[i]
+        
+        # print(len(combined))
+        # return zip(*combined)
+        # unzipped_data, unzipped_label, unzipped_date = zip(*combined)
+        # return np.concatenate(unzipped_data), np.array(unzipped_label), np.array(unzipped_date)
+
+    def __len__(self):
+        return len(self.dataset)
