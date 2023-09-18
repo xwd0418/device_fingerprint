@@ -3,6 +3,7 @@ from models.PL_MMD_AAE import *
 from models.PL_ConDG import *
 from models.PL_rand_con import *
 from models.PL_RandConv_kernel import *
+from models.PL_SNR import *
 # import torch._inductor.config as torch_config
 import json, shutil
 from models.utils import convert_bn_layers, convert_relu_layers
@@ -14,12 +15,13 @@ from pytorch_lightning.loggers import TensorBoardLogger
 import optuna
 from optuna.integration import PyTorchLightningPruningCallback
 from data_module import DeviceFingerpringDataModule, VLCSDataModule
-simple_trainer = False #global variable 
+simple_trainer = True #global variable 
 
 
 class Objective:
-    def __init__(self, should_early_stop):
+    def __init__(self, datamodule, should_early_stop):
         self.should_early_stop = should_early_stop
+        self.datamodule = datamodule
         
     def __call__(self, trial: optuna.trial.Trial) -> float:
         if len(sys.argv) > 1:
@@ -61,11 +63,7 @@ class Objective:
         config['use_pretrained'] = "pretrain" in  exp_name
         print("Using pretrained mode: ", config['use_pretrained'], "\n")
         
-        if config['dataset'].get('img'):
-            if config['dataset']['name'] == "VLCS":
-                datamodule = VLCSDataModule(config=config)
-        else:
-            datamodule = DeviceFingerpringDataModule(config = config)
+        datamodule = self.datamodule
         # Init our model
         if config['model']['name'] in ['resnet18', "resnet50"] :
             model = Baseline_Resnet(config)
@@ -77,6 +75,8 @@ class Objective:
             model = RandConv(config)  
         elif config['model']['name'] == "RandConv_kernel":
             model = RandConv_kernel(config)
+        elif config['model']['name'] == "SNR":
+            model = SNR(config)
             
         if config['experiment'].get("group_norm"):
             print("doing gn! \n\n\n")
@@ -107,7 +107,7 @@ class Objective:
 
 
         # Initialize a trainer
-        max_epoch = 100  if len(sys.argv) > 2 else config['experiment']['num_epochs']
+        max_epoch = 20  if len(sys.argv) > 2 else config['experiment']['num_epochs']
         
         if torch.cuda.device_count() < 2:
             strategy = 'auto'  
@@ -124,7 +124,10 @@ class Objective:
         
         if simple_trainer:
             trainer = PL.Trainer(
-                logger = TensorBoardLogger(save_dir=log_dir, name=name, version=version),
+                # logger = TensorBoardLogger(save_dir=log_dir, name=name, version=version),
+                logger = CSVLogger  (save_dir=log_dir, name=name, version=version),
+                # logger = False,
+                # enable_checkpointing = False,
                 max_epochs = max_epoch,
                 callbacks=callbacks,
         )
@@ -141,6 +144,7 @@ class Objective:
                 # reload_dataloaders_every_n_epochs=1,
                 # log_every_n_steps=40
                 # profiler="simple",
+                # enable_progress_bar = False,
             )
 
         hyperparameters = config
@@ -231,7 +235,7 @@ if __name__ == "__main__":
                 else optuna.pruners.NopPruner() 
         
    
-    storage='postgresql+psycopg2://testUser:testPassword@10.244.84.190:5432/testDB'
+    storage='postgresql+psycopg2://testUser:testPassword@10.244.84.173:5432/testDB'
     print("creating a new study")
     if  len(sys.argv) > 2:
         if config['dataset'].get('img'):
@@ -250,9 +254,17 @@ if __name__ == "__main__":
         load_if_exists=True, 
     )
     
+
+    #definining datamodule 
+    if config['dataset'].get('img'):
+            if config['dataset']['name'] == "VLCS":
+                datamodule = VLCSDataModule(config=config)
+    else:
+            datamodule = DeviceFingerpringDataModule(config = config)
+            
     callbacks = [] if simple_trainer else [delete_bad_ckpt_callback]
     n_trials = config.get('n_trials') if config.get('n_trials') else 50
-    study.optimize(Objective(should_early_stop),
+    study.optimize(Objective(datamodule, should_early_stop),
                    n_trials=n_trials, 
                    callbacks=callbacks
                    )

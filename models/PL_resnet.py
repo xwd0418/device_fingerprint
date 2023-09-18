@@ -77,6 +77,7 @@ class Baseline_Resnet(PL.LightningModule):
         # time1 = time.time()
         if self.val_accuracy.compute() > self.best_val_acc :
             self.best_val_acc  =  self.val_accuracy.compute()
+            #  add a deep copy?
         super().on_validation_epoch_end() 
         # time2= time.time()
         # print("on_validation_epoch_end: ", time2-time1)
